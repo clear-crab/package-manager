@@ -335,6 +335,7 @@ dependencies = [
  "time",
  "toml",
  "toml_edit",
+ "unicase",
  "unicode-width",
  "unicode-xid",
  "url",
@@ -346,8 +347,10 @@ dependencies = [
 name = "cargo-credential"
 version = "0.3.0"
 dependencies = [
+ "anyhow",
  "serde",
  "serde_json",
+ "thiserror",
  "time",
 ]
 
@@ -747,9 +750,9 @@ dependencies = [
 
 [[package]]
 name = "curl-sys"
-version = "0.4.63+curl-8.1.2"
+version = "0.4.65+curl-8.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aeb0fef7046022a1e2ad67a004978f0e3cacb9e3123dc62ce768f92197b771dc"
+checksum = "961ba061c9ef2fe34bbd12b807152d96f0badd2bebe7b90ce6c8c8b7572a0986"
 dependencies = [
  "cc",
  "libc",
@@ -1803,7 +1806,7 @@ dependencies = [
 
 [[package]]
 name = "home"
-version = "0.5.6"
+version = "0.5.7"
 dependencies = [
  "windows-sys 0.48.0",
 ]
