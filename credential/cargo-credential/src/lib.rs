@@ -1,4 +1,4 @@
-//! Helper library for writing Cargo credential processes.
+//! Helper library for writing Cargo credential providers.
 //!
 //! A credential process should have a `struct` that implements the `Credential` trait.
 //! The `main` function should be called with an instance of that struct, such as:
@@ -8,19 +8,46 @@
 //!     cargo_credential::main(MyCredential);
 //! }
 //! ```
+//!
+//! While in the `perform` function, stdin and stdout will be re-attached to the
+//! active console. This allows credential providers to be interactive if necessary.
+//!
+//! ## Error handling
+//! ### [`Error::UrlNotSupported`]
+//! A credential provider may only support some registry URLs. If this is the case
+//! and an unsupported index URL is passed to the provider, it should respond with
+//! [`Error::UrlNotSupported`]. Other credential providers may be attempted by Cargo.
+//!
+//! ### [`Error::NotFound`]
+//! When attempting an [`Action::Get`] or [`Action::Logout`], if a credential can not
+//! be found, the provider should respond with [`Error::NotFound`]. Other credential
+//! providers may be attempted by Cargo.
+//!
+//! ### [`Error::OperationNotSupported`]
+//! A credential provider might not support all operations. For example if the provider
+//! only supports [`Action::Get`], [`Error::OperationNotSupported`] should be returned
+//! for all other requests.
+//!
+//! ### [`Error::Other`]
+//! All other errors go here. The error will be shown to the user in Cargo, including
+//! the full error chain using [`std::error::Error::source`].
+//!
+//! ## Example
+//! ```rust,ignore
+#![doc = include_str!("../examples/file-provider.rs")]
+//! ```
 
 use serde::{Deserialize, Serialize};
-use std::{
-    fmt::Display,
-    fs::File,
-    io::{self, BufRead, BufReader},
-};
+use std::{fmt::Display, io};
 use time::OffsetDateTime;
 
 mod error;
 mod secret;
+mod stdio;
+
 pub use error::Error;
 pub use secret::Secret;
+use stdio::stdin_stdout_to_console;
 
 /// Message sent by the credential helper on startup
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -213,32 +240,20 @@ fn doit(
         if request.v != PROTOCOL_VERSION_1 {
             return Err(format!("unsupported protocol version {}", request.v).into());
         }
-        serde_json::to_writer(
-            std::io::stdout(),
-            &credential.perform(&request.registry, &request.action, &request.args),
-        )?;
+
+        let response = stdin_stdout_to_console(|| {
+            credential.perform(&request.registry, &request.action, &request.args)
+        })?;
+
+        serde_json::to_writer(std::io::stdout(), &response)?;
         println!();
     }
 }
 
-/// Open stdin from the tty
-pub fn tty() -> Result<File, io::Error> {
-    #[cfg(unix)]
-    const IN_DEVICE: &str = "/dev/tty";
-    #[cfg(windows)]
-    const IN_DEVICE: &str = "CONIN$";
-    let stdin = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(IN_DEVICE)?;
-    Ok(stdin)
-}
-
 /// Read a line of text from stdin.
 pub fn read_line() -> Result<String, io::Error> {
-    let mut reader = BufReader::new(tty()?);
     let mut buf = String::new();
-    reader.read_line(&mut buf)?;
+    io::stdin().read_line(&mut buf)?;
     Ok(buf.trim().to_string())
 }
 
