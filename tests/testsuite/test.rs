@@ -389,10 +389,10 @@ failures:
 ---- test_hello stdout ----
 [..]thread '[..]' panicked at [..]",
         )
-        .with_stdout_contains("[..]assertion failed[..]")
-        .with_stdout_contains("[..]`(left == right)`[..]")
-        .with_stdout_contains("[..]left: `\"hello\"`,[..]")
-        .with_stdout_contains("[..]right: `\"nope\"`[..]")
+        .with_stdout_contains("[..]assertion [..]failed[..]")
+        .with_stdout_contains("[..]left == right[..]")
+        .with_stdout_contains("[..]left: [..]\"hello\"[..]")
+        .with_stdout_contains("[..]right: [..]\"nope\"[..]")
         .with_stdout_contains("[..]src/main.rs:12[..]")
         .with_stdout_contains(
             "\
@@ -4842,4 +4842,43 @@ error: 2 targets failed:
     .with_stderr_contains("[..]process didn't exit successfully: `[ROOT]/foo/target/debug/deps/t2[..]` (exit [..]: 4)")
     .with_status(101)
     .run();
+}
+
+#[cargo_test]
+fn cargo_test_no_keep_going() {
+    let p = project()
+        .file("Cargo.toml", &basic_bin_manifest("foo"))
+        .file("src/main.rs", "")
+        .build();
+
+    p.cargo("test --keep-going")
+        .with_stderr(
+            "\
+error: unexpected argument `--keep-going` found
+
+  tip: to run as many tests as possible without failing fast, use `--no-fail-fast`",
+        )
+        .with_status(101)
+        .run();
+}
+
+#[cargo_test]
+fn cargo_test_print_env_verbose() {
+    let p = project()
+        .file("Cargo.toml", &basic_manifest("foo", "0.0.1"))
+        .file("src/lib.rs", "")
+        .build();
+
+    p.cargo("test -vv")
+        .with_stderr(
+            "\
+[COMPILING] foo v0.0.1 ([CWD])
+[RUNNING] `[..]CARGO_MANIFEST_DIR=[CWD][..] rustc --crate-name foo[..]`
+[RUNNING] `[..]CARGO_MANIFEST_DIR=[CWD][..] rustc --crate-name foo[..]`
+[FINISHED] test [unoptimized + debuginfo] target(s) in [..]
+[RUNNING] `[..]CARGO_MANIFEST_DIR=[CWD][..] [CWD]/target/debug/deps/foo-[..][EXE]`
+[DOCTEST] foo
+[RUNNING] `[..]CARGO_MANIFEST_DIR=[CWD][..] rustdoc --crate-type lib --crate-name foo[..]",
+        )
+        .run();
 }

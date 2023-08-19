@@ -99,6 +99,7 @@ fn credential_provider(config: &Config, sid: &SourceId) -> CargoResult<Vec<Vec<S
                 .collect()
         })
         .unwrap_or_else(default_providers);
+    tracing::debug!(?global_providers);
 
     let providers = match cfg {
         // If there's a specific provider configured for this registry, use it.
@@ -429,6 +430,7 @@ fn credential_action(
     sid: &SourceId,
     action: Action<'_>,
     headers: Vec<String>,
+    args: &[&str],
 ) -> CargoResult<CredentialResponse> {
     let name = if sid.is_crates_io() {
         Some(CRATES_IO_REGISTRY)
@@ -441,17 +443,22 @@ fn credential_action(
         headers,
     };
     let providers = credential_provider(config, sid)?;
+    let mut any_not_found = false;
     for provider in providers {
-        let args: Vec<&str> = provider.iter().map(String::as_str).collect();
+        let args: Vec<&str> = provider
+            .iter()
+            .map(String::as_str)
+            .chain(args.iter().map(|s| *s))
+            .collect();
         let process = args[0];
         tracing::debug!("attempting credential provider: {args:?}");
         let provider: Box<dyn Credential> = match process {
             "cargo:token" => Box::new(TokenCredential::new(config)),
             "cargo:paseto" => Box::new(PasetoCredential::new(config)),
-            "cargo:basic" => Box::new(BasicProcessCredential {}),
-            "cargo:1password" => Box::new(cargo_credential_1password::OnePasswordCredential {}),
+            "cargo:token-from-stdout" => Box::new(BasicProcessCredential {}),
             "cargo:wincred" => Box::new(cargo_credential_wincred::WindowsCredential {}),
             "cargo:macos-keychain" => Box::new(cargo_credential_macos_keychain::MacKeychain {}),
+            "cargo:libsecret" => Box::new(cargo_credential_libsecret::LibSecretCredential {}),
             process => Box::new(CredentialProcessCredential::new(process)),
         };
         config.shell().verbose(|c| {
@@ -466,8 +473,8 @@ fn credential_action(
         })?;
         match provider.perform(&registry, &action, &args[1..]) {
             Ok(response) => return Ok(response),
-            Err(cargo_credential::Error::UrlNotSupported)
-            | Err(cargo_credential::Error::NotFound) => {}
+            Err(cargo_credential::Error::UrlNotSupported) => {}
+            Err(cargo_credential::Error::NotFound) => any_not_found = true,
             e => {
                 return e.with_context(|| {
                     format!(
@@ -478,7 +485,11 @@ fn credential_action(
             }
         }
     }
-    Err(cargo_credential::Error::NotFound.into())
+    if any_not_found {
+        Err(cargo_credential::Error::NotFound.into())
+    } else {
+        anyhow::bail!("no credential providers could handle the request")
+    }
 }
 
 /// Returns the token to use for the given registry.
@@ -529,7 +540,7 @@ fn auth_token_optional(
         }
     }
 
-    let credential_response = credential_action(config, sid, Action::Get(operation), headers);
+    let credential_response = credential_action(config, sid, Action::Get(operation), headers, &[]);
     if let Some(e) = credential_response.as_ref().err() {
         if let Some(e) = e.downcast_ref::<cargo_credential::Error>() {
             if matches!(e, cargo_credential::Error::NotFound) {
@@ -568,7 +579,7 @@ fn auth_token_optional(
 
 /// Log out from the given registry.
 pub fn logout(config: &Config, sid: &SourceId) -> CargoResult<()> {
-    let credential_response = credential_action(config, sid, Action::Logout, vec![]);
+    let credential_response = credential_action(config, sid, Action::Logout, vec![], &[]);
     if let Some(e) = credential_response.as_ref().err() {
         if let Some(e) = e.downcast_ref::<cargo_credential::Error>() {
             if matches!(e, cargo_credential::Error::NotFound) {
@@ -591,8 +602,13 @@ pub fn logout(config: &Config, sid: &SourceId) -> CargoResult<()> {
 }
 
 /// Log in to the given registry.
-pub fn login(config: &Config, sid: &SourceId, options: LoginOptions<'_>) -> CargoResult<()> {
-    let credential_response = credential_action(config, sid, Action::Login(options), vec![])?;
+pub fn login(
+    config: &Config,
+    sid: &SourceId,
+    options: LoginOptions<'_>,
+    args: &[&str],
+) -> CargoResult<()> {
+    let credential_response = credential_action(config, sid, Action::Login(options), vec![], args)?;
     let CredentialResponse::Login = credential_response else {
         bail!("credential provider produced unexpected response for `login` request: {credential_response:?}")
     };

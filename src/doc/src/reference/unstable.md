@@ -432,9 +432,9 @@ like to stabilize it somehow!
 ### keep-going
 * Tracking Issue: [#10496](https://github.com/rust-lang/cargo/issues/10496)
 
-`cargo build --keep-going` (and similarly for `check`, `test` etc) will build as
-many crates in the dependency graph as possible, rather than aborting the build
-at the first one that fails to build.
+`cargo build --keep-going` (and similarly for every command involving compilation, like `check` and `doc`)
+will build as many crates in the dependency graph as possible,
+rather than aborting the build at the first one that fails to build.
 
 For example if the current package depends on dependencies `fails` and `works`,
 one of which fails to build, `cargo check -j1` may or may not build the one that
@@ -447,6 +447,16 @@ The `-Z unstable-options` command-line option must be used in order to use
 
 ```console
 cargo check --keep-going -Z unstable-options
+```
+
+While `cargo test` and `cargo bench` commands involve compilation, they do not provide a `--keep-going` flag.
+Both commands already include a similar `--no-fail-fast` flag, allowing running as many tests as possible without stopping at the first failure.
+To "compile" as many tests as possible, use target selection flags like `--tests` to build test binaries separately.
+For example,
+
+```console
+cargo build --tests --keep-going -Zunstable-options
+cargo test --tests --no-fail-fast
 ```
 
 ### config-include
@@ -1058,7 +1068,14 @@ specified in the `registries` table:
 
 ```toml
 [registries.my-registry]
-global-credential-provider = "/usr/bin/cargo-creds"
+credential-provider = "/usr/bin/cargo-creds"
+```
+
+The credential provider for crates.io can be specified as:
+
+```toml
+[registry]
+credential-provider = "/usr/bin/cargo-creds"
 ```
 
 The value can be a string with spaces separating arguments or it can be a TOML
@@ -1084,9 +1101,10 @@ executed within the Cargo process. They are identified with the `cargo:` prefix.
 * `cargo:token` - Uses Cargo's config and `credentials.toml` to store the token (default).
 * `cargo:wincred` - Uses the Windows Credential Manager to store the token.
 * `cargo:macos-keychain` - Uses the macOS Keychain to store the token.
-* `cargo:basic` - A basic authenticator is a process that returns a token on stdout. Newlines
-  will be trimmed. The process inherits the user's stdin and stderr. It should
-  exit 0 on success, and nonzero on error.
+* `cargo:libsecret` - Uses [libsecret](https://wiki.gnome.org/Projects/Libsecret) to store tokens on Linux systems.
+* `cargo:token-from-stdout <command>` - Launch a subprocess that returns a token
+  on stdout. Newlines will be trimmed. The process inherits the user's stdin and stderr.
+  It should exit 0 on success, and nonzero on error.
   
   With this form, [`cargo login`] and [`cargo logout`] are not supported and
   return an error if used.
@@ -1098,31 +1116,26 @@ executed within the Cargo process. They are identified with the `cargo:` prefix.
   * `CARGO_REGISTRY_NAME_OPT` --- Optional name of the registry. Should not be used as a storage key. Not always available.
 
 * `cargo:paseto` - implements asymmetric token support (RFC3231) as a credential provider.
-* `cargo:1password`: Uses the 1password `op` CLI to store the token. You must
-  install the `op` CLI from the [1password
-  website](https://1password.com/downloads/command-line/). You must run `op
-  signin` at least once with the appropriate arguments (such as `op signin
-  my.1password.com user@example.com`), unless you provide the sign-in-address
-  and email arguments. The master password will be required on each request
-  unless the appropriate `OP_SESSION` environment variable is set. It supports
-  the following command-line arguments:
-  * `--account`: The account shorthand name to use.
-  * `--vault`: The vault name to use.
-  * `--sign-in-address`: The sign-in-address, which is a web address such as `my.1password.com`.
-  * `--email`: The email address to sign in with.
 
-A wrapper is available for GNOME
-[libsecret](https://wiki.gnome.org/Projects/Libsecret) to store tokens on
-Linux systems. Due to build limitations, this wrapper is not available as a
-pre-compiled binary. This can be built and installed manually. First, install
-libsecret using your system package manager (for example, `sudo apt install
-libsecret-1-dev`). Then build and install the wrapper with `cargo install
-cargo-credential-gnome-secret`.
-In the config, use a path to the binary like this:
 
+`cargo-credential-1password` uses the 1password `op` CLI to store the token. You must
+install the `op` CLI from the [1password
+website](https://1password.com/downloads/command-line/). You must run `op
+signin` at least once with the appropriate arguments (such as `op signin
+my.1password.com user@example.com`), unless you provide the sign-in-address
+and email arguments. The master password will be required on each request
+unless the appropriate `OP_SESSION` environment variable is set. It supports
+the following command-line arguments:
+* `--account`: The account shorthand name to use.
+* `--vault`: The vault name to use.
+* `--sign-in-address`: The sign-in-address, which is a web address such as `my.1password.com`.
+* `--email`: The email address to sign in with.
+
+Install the provider with `cargo install cargo-credential-1password`
+In the config, add it to `global-credential-providers`:
 ```toml
 [registry]
-global-credential-providers = ["cargo-credential-gnome-secret"]
+global-credential-providers = ["cargo-credential-1password"]
 ```
 
 #### JSON Interface

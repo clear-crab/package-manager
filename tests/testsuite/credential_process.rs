@@ -148,7 +148,7 @@ fn basic_unsupported() {
     // Non-action commands don't support login/logout.
     let registry = registry::RegistryBuilder::new()
         .no_configure_token()
-        .credential_provider(&["cargo:basic", "false"])
+        .credential_provider(&["cargo:token-from-stdout", "false"])
         .build();
 
     cargo_process("login -Z credential-process abcdefg")
@@ -158,7 +158,7 @@ fn basic_unsupported() {
         .with_stderr(
             "\
 [UPDATING] crates.io index
-[ERROR] credential provider `cargo:basic false` failed action `login`
+[ERROR] credential provider `cargo:token-from-stdout false` failed action `login`
 
 Caused by:
   requested operation not supported
@@ -172,7 +172,7 @@ Caused by:
         .with_status(101)
         .with_stderr(
             "\
-[ERROR] credential provider `cargo:basic false` failed action `logout`
+[ERROR] credential provider `cargo:token-from-stdout false` failed action `logout`
 
 Caused by:
   requested operation not supported
@@ -185,15 +185,19 @@ Caused by:
 fn login() {
     let registry = registry::RegistryBuilder::new()
         .no_configure_token()
-        .credential_provider(&[&build_provider("test-cred", r#"{"Ok": {"kind": "login"}}"#)])
+        .credential_provider(&[
+            &build_provider("test-cred", r#"{"Ok": {"kind": "login"}}"#),
+            "cfg1",
+            "--cfg2",
+        ])
         .build();
 
-    cargo_process("login -Z credential-process abcdefg")
+    cargo_process("login -Z credential-process abcdefg -- cmd3 --cmd4")
         .masquerade_as_nightly_cargo(&["credential-process"])
         .replace_crates_io(registry.index_url())
         .with_stderr(
             r#"[UPDATING] [..]
-{"v":1,"registry":{"index-url":"https://github.com/rust-lang/crates.io-index","name":"crates-io"},"kind":"login","token":"abcdefg","login-url":"[..]","args":[]}
+{"v":1,"registry":{"index-url":"https://github.com/rust-lang/crates.io-index","name":"crates-io"},"kind":"login","token":"abcdefg","login-url":"[..]","args":["cfg1","--cfg2","cmd3","--cmd4"]}
 "#,
         )
         .run();
@@ -262,7 +266,10 @@ fn invalid_token_output() {
     cred_proj.cargo("build").run();
     let _server = registry::RegistryBuilder::new()
         .alternative()
-        .credential_provider(&["cargo:basic", &toml_bin(&cred_proj, "test-cred")])
+        .credential_provider(&[
+            "cargo:token-from-stdout",
+            &toml_bin(&cred_proj, "test-cred"),
+        ])
         .no_configure_token()
         .build();
 
@@ -311,6 +318,86 @@ fn build_provider(name: &str, response: &str) -> String {
         .build();
     cred_proj.cargo("build").run();
     toml_bin(&cred_proj, name)
+}
+
+#[cargo_test]
+fn all_not_found() {
+    let server = registry::RegistryBuilder::new()
+        .no_configure_token()
+        .auth_required()
+        .http_index()
+        .build();
+    let not_found = build_provider("not_found", r#"{"Err": {"kind": "not-found"}}"#);
+    cargo_util::paths::append(
+        &paths::home().join(".cargo/config"),
+        format!(
+            r#"
+                [registry]
+                global-credential-providers = ["not_found"]
+                [credential-alias]
+                not_found = ["{not_found}"]
+            "#,
+        )
+        .as_bytes(),
+    )
+    .unwrap();
+
+    cargo_process("install -v foo -Zcredential-process -Zregistry-auth")
+        .masquerade_as_nightly_cargo(&["credential-process", "registry-auth"])
+        .replace_crates_io(server.index_url())
+        .with_status(101)
+        .with_stderr(
+            r#"[UPDATING] [..]
+[CREDENTIAL] [..]not_found[..] get crates-io
+{"v":1,"registry":{"index-url":"[..]","name":"crates-io","headers":[[..]"WWW-Authenticate: Cargo login_url=\"https://test-registry-login/me\""[..]]},"kind":"get","operation":"read","args":[]}
+[ERROR] failed to query replaced source registry `crates-io`
+
+Caused by:
+  no token found, please run `cargo login`
+  or use environment variable CARGO_REGISTRY_TOKEN
+"#,
+        )
+        .run();
+}
+
+#[cargo_test]
+fn all_not_supported() {
+    let server = registry::RegistryBuilder::new()
+        .no_configure_token()
+        .auth_required()
+        .http_index()
+        .build();
+    let not_supported =
+        build_provider("not_supported", r#"{"Err": {"kind": "url-not-supported"}}"#);
+    cargo_util::paths::append(
+        &paths::home().join(".cargo/config"),
+        format!(
+            r#"
+                [registry]
+                global-credential-providers = ["not_supported"]
+                [credential-alias]
+                not_supported = ["{not_supported}"]
+            "#,
+        )
+        .as_bytes(),
+    )
+    .unwrap();
+
+    cargo_process("install -v foo -Zcredential-process -Zregistry-auth")
+        .masquerade_as_nightly_cargo(&["credential-process", "registry-auth"])
+        .replace_crates_io(server.index_url())
+        .with_status(101)
+        .with_stderr(
+            r#"[UPDATING] [..]
+[CREDENTIAL] [..]not_supported[..] get crates-io
+{"v":1,"registry":{"index-url":"[..]","name":"crates-io","headers":[[..]"WWW-Authenticate: Cargo login_url=\"https://test-registry-login/me\""[..]]},"kind":"get","operation":"read","args":[]}
+[ERROR] failed to query replaced source registry `crates-io`
+
+Caused by:
+  no credential providers could handle the request
+"#,
+        )
+        .run();
 }
 
 #[cargo_test]
@@ -523,7 +610,10 @@ fn basic_provider() {
 
     let _server = registry::RegistryBuilder::new()
         .no_configure_token()
-        .credential_provider(&["cargo:basic", &toml_bin(&cred_proj, "test-cred")])
+        .credential_provider(&[
+            "cargo:token-from-stdout",
+            &toml_bin(&cred_proj, "test-cred"),
+        ])
         .token(cargo_test_support::registry::Token::Plaintext(
             "sekrit".to_string(),
         ))
