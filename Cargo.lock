@@ -257,7 +257,7 @@ dependencies = [
 
 [[package]]
 name = "cargo"
-version = "0.74.0"
+version = "0.75.0"
 dependencies = [
  "anyhow",
  "base64",
@@ -427,7 +427,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-util"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "anyhow",
  "core-foundation",
@@ -508,18 +508,18 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.3.19"
+version = "4.3.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5fd304a20bff958a57f04c4e96a2e7594cc4490a0e809cbd48bb6437edaa452d"
+checksum = "03aef18ddf7d879c15ce20f04826ef8418101c7e528014c3eeea13321047dca3"
 dependencies = [
  "clap_builder",
 ]
 
 [[package]]
 name = "clap_builder"
-version = "4.3.19"
+version = "4.3.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "01c6a3f08f1fe5662a35cfe393aec09c4df95f60ee93b7556505260f75eee9e1"
+checksum = "f8ce6fffb678c9b80a70b6b6de0aad31df727623a70fd9a842c30cd573e2fa98"
 dependencies = [
  "anstream",
  "anstyle",
@@ -588,7 +588,7 @@ dependencies = [
 
 [[package]]
 name = "crates-io"
-version = "0.38.0"
+version = "0.39.0"
 dependencies = [
  "curl",
  "percent-encoding",

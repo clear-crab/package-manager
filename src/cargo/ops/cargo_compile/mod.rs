@@ -5,7 +5,7 @@
 //! rough outline is:
 //!
 //! 1. Resolve the dependency graph (see [`ops::resolve`]).
-//! 2. Download any packages needed (see [`PackageSet`](crate::core::PackageSet)).
+//! 2. Download any packages needed (see [`PackageSet`].
 //! 3. Generate a list of top-level "units" of work for the targets the user
 //!   requested on the command-line. Each [`Unit`] corresponds to a compiler
 //!   invocation. This is done in this module ([`UnitGenerator::generate_root_units`]).
@@ -237,7 +237,7 @@ pub fn create_bcx<'a, 'cfg>(
     }
     config.validate_term_config()?;
 
-    let target_data = RustcTargetData::new(ws, &build_config.requested_kinds)?;
+    let mut target_data = RustcTargetData::new(ws, &build_config.requested_kinds)?;
 
     let specs = spec.to_package_id_specs(ws)?;
     let has_dev_units = {
@@ -263,7 +263,7 @@ pub fn create_bcx<'a, 'cfg>(
     };
     let resolve = ops::resolve_ws_with_opts(
         ws,
-        &target_data,
+        &mut target_data,
         &build_config.requested_kinds,
         cli_features,
         &specs,
@@ -279,7 +279,7 @@ pub fn create_bcx<'a, 'cfg>(
 
     let std_resolve_features = if let Some(crates) = &config.cli_unstable().build_std {
         let (std_package_set, std_resolve, std_features) =
-            standard_lib::resolve_std(ws, &target_data, &build_config, crates)?;
+            standard_lib::resolve_std(ws, &mut target_data, &build_config, crates)?;
         pkg_set.add_set(std_package_set);
         Some((std_resolve, std_features))
     } else {
@@ -492,7 +492,7 @@ pub fn create_bcx<'a, 'cfg>(
                 None => continue,
             };
 
-            let req = semver::VersionReq::parse(version).unwrap();
+            let req = version.caret_req();
             if req.matches(&untagged_version) {
                 continue;
             }

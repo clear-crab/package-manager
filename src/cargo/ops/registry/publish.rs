@@ -353,6 +353,17 @@ fn transmit(
                 .to_string(),
                 registry: dep_registry,
                 explicit_name_in_toml: dep.explicit_name_in_toml().map(|s| s.to_string()),
+                artifact: dep.artifact().map(|artifact| {
+                    artifact
+                        .kinds()
+                        .iter()
+                        .map(|x| x.as_str().into_owned())
+                        .collect()
+                }),
+                bindep_target: dep.artifact().and_then(|artifact| {
+                    artifact.target().map(|target| target.as_str().to_owned())
+                }),
+                lib: dep.artifact().map_or(false, |artifact| artifact.is_lib()),
             })
         })
         .collect::<CargoResult<Vec<NewCrateDependency>>>()?;
@@ -372,6 +383,7 @@ fn transmit(
         ref links,
         ref rust_version,
     } = *manifest.metadata();
+    let rust_version = rust_version.as_ref().map(ToString::to_string);
     let readme_content = readme
         .as_ref()
         .map(|readme| {
@@ -424,7 +436,7 @@ fn transmit(
                 license_file: license_file.clone(),
                 badges: badges.clone(),
                 links: links.clone(),
-                rust_version: rust_version.clone(),
+                rust_version,
             },
             tarball,
         )

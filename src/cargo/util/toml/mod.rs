@@ -12,7 +12,6 @@ use cargo_util::paths;
 use itertools::Itertools;
 use lazycell::LazyCell;
 use semver::{self, VersionReq};
-use serde::de::IntoDeserializer as _;
 use serde::de::{self, Unexpected};
 use serde::ser;
 use serde::{Deserialize, Serialize};
@@ -31,7 +30,8 @@ use crate::sources::{CRATES_IO_INDEX, CRATES_IO_REGISTRY};
 use crate::util::errors::{CargoResult, ManifestError};
 use crate::util::interning::InternedString;
 use crate::util::{
-    self, config::ConfigRelativePath, validate_package_name, Config, IntoUrl, VersionReqExt,
+    self, config::ConfigRelativePath, validate_package_name, Config, IntoUrl, PartialVersion,
+    VersionReqExt,
 };
 
 pub mod embedded;
@@ -99,26 +99,9 @@ fn read_manifest_from_str(
 ) -> CargoResult<(EitherManifest, Vec<PathBuf>)> {
     let package_root = manifest_file.parent().unwrap();
 
-    let toml = {
-        let pretty_filename = manifest_file
-            .strip_prefix(config.cwd())
-            .unwrap_or(manifest_file);
-        parse_document(contents, pretty_filename, config)?
-    };
-
-    // Provide a helpful error message for a common user error.
-    if let Some(package) = toml.get("package").or_else(|| toml.get("project")) {
-        if let Some(feats) = package.get("cargo-features") {
-            bail!(
-                "cargo-features = {} was found in the wrong location: it \
-                 should be set at the top of Cargo.toml before any tables",
-                feats
-            );
-        }
-    }
-
     let mut unused = BTreeSet::new();
-    let manifest: TomlManifest = serde_ignored::deserialize(toml.into_deserializer(), |path| {
+    let deserializer = toml::de::Deserializer::new(contents);
+    let manifest: TomlManifest = serde_ignored::deserialize(deserializer, |path| {
         let mut key = String::new();
         stringify(&mut key, &path);
         unused.insert(key);
@@ -194,8 +177,7 @@ fn read_manifest_from_str(
 
 pub fn parse_document(toml: &str, _file: &Path, _config: &Config) -> CargoResult<toml::Table> {
     // At the moment, no compatibility checks are needed.
-    toml.parse()
-        .map_err(|e| anyhow::Error::from(e).context("could not parse input as TOML"))
+    toml.parse().map_err(Into::into)
 }
 
 /// Warn about paths that have been deprecated and may conflict.
@@ -1078,7 +1060,7 @@ pub trait WorkspaceInherit {
 }
 
 /// An enum that allows for inheriting keys from a workspace in a Cargo.toml.
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Copy, Clone, Debug)]
 #[serde(untagged)]
 pub enum MaybeWorkspace<T, W: WorkspaceInherit> {
     /// The "defined" type, or the type that that is used when not inheriting from a workspace.
@@ -1297,6 +1279,42 @@ impl<'de> de::Deserialize<'de> for MaybeWorkspaceString {
     }
 }
 
+type MaybeWorkspacePartialVersion = MaybeWorkspace<PartialVersion, TomlWorkspaceField>;
+impl<'de> de::Deserialize<'de> for MaybeWorkspacePartialVersion {
+    fn deserialize<D>(d: D) -> Result<Self, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        struct Visitor;
+
+        impl<'de> de::Visitor<'de> for Visitor {
+            type Value = MaybeWorkspacePartialVersion;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+                f.write_str("a semver or workspace")
+            }
+
+            fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                let value = value.parse::<PartialVersion>().map_err(|e| E::custom(e))?;
+                Ok(MaybeWorkspacePartialVersion::Defined(value))
+            }
+
+            fn visit_map<V>(self, map: V) -> Result<Self::Value, V::Error>
+            where
+                V: de::MapAccess<'de>,
+            {
+                let mvd = de::value::MapAccessDeserializer::new(map);
+                TomlWorkspaceField::deserialize(mvd).map(MaybeWorkspace::Workspace)
+            }
+        }
+
+        d.deserialize_any(Visitor)
+    }
+}
+
 type MaybeWorkspaceVecString = MaybeWorkspace<Vec<String>, TomlWorkspaceField>;
 impl<'de> de::Deserialize<'de> for MaybeWorkspaceVecString {
     fn deserialize<D>(d: D) -> Result<Self, D::Error>
@@ -1467,7 +1485,7 @@ impl<'de> de::Deserialize<'de> for MaybeWorkspaceLints {
     }
 }
 
-#[derive(Deserialize, Serialize, Clone, Debug)]
+#[derive(Deserialize, Serialize, Copy, Clone, Debug)]
 pub struct TomlWorkspaceField {
     #[serde(deserialize_with = "bool_no_false")]
     workspace: bool,
@@ -1502,7 +1520,7 @@ impl WorkspaceInherit for TomlWorkspaceField {
 #[serde(rename_all = "kebab-case")]
 pub struct TomlPackage {
     edition: Option<MaybeWorkspaceString>,
-    rust_version: Option<MaybeWorkspaceString>,
+    rust_version: Option<MaybeWorkspacePartialVersion>,
     name: InternedString,
     #[serde(deserialize_with = "version_trim_whitespace")]
     version: MaybeWorkspaceSemverVersion,
@@ -1536,6 +1554,10 @@ pub struct TomlPackage {
     license_file: Option<MaybeWorkspaceString>,
     repository: Option<MaybeWorkspaceString>,
     resolver: Option<String>,
+
+    // Provide a helpful error message for a common user error.
+    #[serde(rename = "cargo-features", skip_serializing)]
+    _invalid_cargo_features: Option<InvalidCargoFeatures>,
 
     // Note that this field must come last due to the way toml serialization
     // works which requires tables to be emitted after all values.
@@ -1588,7 +1610,7 @@ pub struct InheritableFields {
     exclude: Option<Vec<String>>,
     include: Option<Vec<String>>,
     #[serde(rename = "rust-version")]
-    rust_version: Option<String>,
+    rust_version: Option<PartialVersion>,
     // We use skip here since it will never be present when deserializing
     // and we don't want it present when serializing
     #[serde(skip)]
@@ -1628,7 +1650,7 @@ impl InheritableFields {
         ("package.license",       license       -> String),
         ("package.publish",       publish       -> VecStringOrBool),
         ("package.repository",    repository    -> String),
-        ("package.rust-version",  rust_version  -> String),
+        ("package.rust-version",  rust_version  -> PartialVersion),
         ("package.version",       version       -> semver::Version),
     }
 
@@ -2062,14 +2084,9 @@ impl TomlManifest {
         }
 
         let rust_version = if let Some(rust_version) = &package.rust_version {
-            let rust_version = rust_version
-                .clone()
-                .resolve("rust_version", || inherit()?.rust_version())?;
-            let req = match semver::VersionReq::parse(&rust_version) {
-                // Exclude semver operators like `^` and pre-release identifiers
-                Ok(req) if rust_version.chars().all(|c| c.is_ascii_digit() || c == '.') => req,
-                _ => bail!("`rust-version` must be a value like \"1.32\""),
-            };
+            let rust_version =
+                rust_version.resolve("rust_version", || inherit()?.rust_version())?;
+            let req = rust_version.caret_req();
             if let Some(first_version) = edition.first_version() {
                 let unsupported =
                     semver::Version::new(first_version.major, first_version.minor - 1, 9999);
@@ -2350,7 +2367,7 @@ impl TomlManifest {
             deps,
             me.features.as_ref().unwrap_or(&empty_features),
             package.links.as_deref(),
-            rust_version.as_deref().map(InternedString::new),
+            rust_version,
         )?;
 
         let metadata = ManifestMetadata {
@@ -2420,7 +2437,6 @@ impl TomlManifest {
             links: package.links.clone(),
             rust_version: package
                 .rust_version
-                .clone()
                 .map(|mw| mw.resolve("rust-version", || inherit()?.rust_version()))
                 .transpose()?,
         };
@@ -3302,7 +3318,7 @@ impl<P: ResolveToPath + Clone> DetailedTomlDependency<P> {
             self.target.as_deref(),
         ) {
             if cx.config.cli_unstable().bindeps {
-                let artifact = Artifact::parse(artifact, is_lib, target)?;
+                let artifact = Artifact::parse(&artifact.0, is_lib, target)?;
                 if dep.kind() != DepKind::Build
                     && artifact.target() == Some(ArtifactTarget::BuildDependencyAssumeTarget)
                 {
@@ -3545,5 +3561,22 @@ impl TomlLintLevel {
             Self::Warn => "--warn",
             Self::Allow => "--allow",
         }
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+#[non_exhaustive]
+struct InvalidCargoFeatures {}
+
+impl<'de> de::Deserialize<'de> for InvalidCargoFeatures {
+    fn deserialize<D>(_d: D) -> Result<Self, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        use serde::de::Error as _;
+
+        Err(D::Error::custom(
+            "the field `cargo-features` should be set at the top of Cargo.toml before any tables",
+        ))
     }
 }
