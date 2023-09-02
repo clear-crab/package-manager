@@ -14,13 +14,14 @@ pub struct UpdateOptions<'a> {
     pub config: &'a Config,
     pub to_update: Vec<String>,
     pub precise: Option<&'a str>,
-    pub aggressive: bool,
+    pub recursive: bool,
     pub dry_run: bool,
     pub workspace: bool,
 }
 
 pub fn generate_lockfile(ws: &Workspace<'_>) -> CargoResult<()> {
     let mut registry = PackageRegistry::new(ws.config())?;
+    let max_rust_version = ws.rust_version();
     let mut resolve = ops::resolve_with_previous(
         &mut registry,
         ws,
@@ -30,14 +31,15 @@ pub fn generate_lockfile(ws: &Workspace<'_>) -> CargoResult<()> {
         None,
         &[],
         true,
+        max_rust_version,
     )?;
     ops::write_pkg_lockfile(ws, &mut resolve)?;
     Ok(())
 }
 
 pub fn update_lockfile(ws: &Workspace<'_>, opts: &UpdateOptions<'_>) -> CargoResult<()> {
-    if opts.aggressive && opts.precise.is_some() {
-        anyhow::bail!("cannot specify both aggressive and precise simultaneously")
+    if opts.recursive && opts.precise.is_some() {
+        anyhow::bail!("cannot specify both recursive and precise simultaneously")
     }
 
     if ws.members().count() == 0 {
@@ -47,6 +49,8 @@ pub fn update_lockfile(ws: &Workspace<'_>, opts: &UpdateOptions<'_>) -> CargoRes
     // Updates often require a lot of modifications to the registry, so ensure
     // that we're synchronized against other Cargos.
     let _lock = ws.config().acquire_package_cache_lock()?;
+
+    let max_rust_version = ws.rust_version();
 
     let previous_resolve = match ops::load_pkg_lockfile(ws)? {
         Some(resolve) => resolve,
@@ -67,6 +71,7 @@ pub fn update_lockfile(ws: &Workspace<'_>, opts: &UpdateOptions<'_>) -> CargoRes
                         None,
                         &[],
                         true,
+                        max_rust_version,
                     )?
                 }
             }
@@ -84,7 +89,7 @@ pub fn update_lockfile(ws: &Workspace<'_>, opts: &UpdateOptions<'_>) -> CargoRes
         let mut sources = Vec::new();
         for name in opts.to_update.iter() {
             let dep = previous_resolve.query(name)?;
-            if opts.aggressive {
+            if opts.recursive {
                 fill_with_deps(&previous_resolve, dep, &mut to_avoid, &mut HashSet::new());
             } else {
                 to_avoid.insert(dep);
@@ -125,6 +130,7 @@ pub fn update_lockfile(ws: &Workspace<'_>, opts: &UpdateOptions<'_>) -> CargoRes
         Some(&to_avoid),
         &[],
         true,
+        max_rust_version,
     )?;
 
     // Summarize what is changing for the user.

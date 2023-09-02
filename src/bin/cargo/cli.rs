@@ -12,6 +12,7 @@ use std::fmt::Write;
 use super::commands;
 use super::list_commands;
 use crate::command_prelude::*;
+use crate::util::is_rustup;
 use cargo::core::features::HIDDEN;
 
 pub fn main(config: &mut LazyConfig) -> CliResult {
@@ -511,11 +512,7 @@ impl GlobalArgs {
 }
 
 pub fn cli() -> Command {
-    // ALLOWED: `RUSTUP_HOME` should only be read from process env, otherwise
-    // other tools may point to executables from incompatible distributions.
-    #[allow(clippy::disallowed_methods)]
-    let is_rustup = std::env::var_os("RUSTUP_HOME").is_some();
-    let usage = if is_rustup {
+    let usage = if is_rustup() {
         "cargo [+toolchain] [OPTIONS] [COMMAND]\n       cargo [+toolchain] [OPTIONS] -Zscript <MANIFEST_RS> [ARGS]..."
     } else {
         "cargo [OPTIONS] [COMMAND]\n       cargo [OPTIONS] -Zscript <MANIFEST_RS> [ARGS]..."
@@ -542,7 +539,7 @@ Usage: {usage}
 Options:
 {options}
 
-Some common cargo commands are (see all commands with --list):
+Commands:
     build, b    Compile the current package
     check, c    Analyze the current package and report errors, but don't build object files
     clean       Remove the target directory
@@ -559,12 +556,19 @@ Some common cargo commands are (see all commands with --list):
     publish     Package and upload this package to the registry
     install     Install a Rust binary. Default location is $HOME/.cargo/bin
     uninstall   Uninstall a Rust binary
+    ...         See all commands with --list
 
 See 'cargo help <command>' for more information on a specific command.\n",
         )
         .arg(flag("version", "Print version info and exit").short('V'))
         .arg(flag("list", "List installed commands"))
-        .arg(opt("explain", "Run `rustc --explain CODE`").value_name("CODE"))
+        .arg(
+            opt(
+                "explain",
+                "Provide a detailed explanation of a rustc error message",
+            )
+            .value_name("CODE"),
+        )
         .arg(
             opt(
                 "verbose",

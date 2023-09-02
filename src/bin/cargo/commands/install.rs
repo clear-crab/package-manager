@@ -121,6 +121,16 @@ pub fn exec(config: &mut Config, args: &ArgMatches) -> CliResult {
             )
             .into());
         }
+
+        if let Ok(url) = crate_name.into_url() {
+            if matches!(url.scheme(), "http" | "https") {
+                return Err(anyhow!(
+                    "invalid package name: `{url}`
+    Use `cargo install --git {url}` if you meant to install from a git repository."
+                )
+                .into());
+            }
+        }
     }
 
     let mut from_cwd = false;
@@ -251,7 +261,7 @@ fn parse_semver_flag(v: &str) -> CargoResult<VersionReq> {
                 // requirement, add a note to the warning
                 if v.parse::<VersionReq>().is_ok() {
                     msg.push_str(&format!(
-                        "\n\n  tip: if you want to specify semver range, \
+                        "\n\n  tip: if you want to specify SemVer range, \
                              add an explicit qualifier, like '^{}'",
                         v
                     ));

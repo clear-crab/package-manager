@@ -261,6 +261,7 @@ pub fn create_bcx<'a, 'cfg>(
             HasDevUnits::No
         }
     };
+    let max_rust_version = ws.rust_version();
     let resolve = ops::resolve_ws_with_opts(
         ws,
         &mut target_data,
@@ -269,6 +270,7 @@ pub fn create_bcx<'a, 'cfg>(
         &specs,
         has_dev_units,
         crate::core::resolver::features::ForceAllTargets::No,
+        max_rust_version,
     )?;
     let WorkspaceResolve {
         mut pkg_set,
@@ -506,7 +508,7 @@ pub fn create_bcx<'a, 'cfg>(
             } else if !unit.is_local() {
                 format!(
                     "Either upgrade to rustc {} or newer, or use\n\
-                     cargo update -p {}@{} --precise ver\n\
+                     cargo update {}@{} --precise ver\n\
                      where `ver` is the latest version of `{}` supporting rustc {}",
                     version,
                     unit.pkg.name(),

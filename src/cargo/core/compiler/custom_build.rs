@@ -281,7 +281,7 @@ fn build_work(cx: &mut Context<'_, '_>, unit: &Unit) -> CargoResult<Job> {
         .env("NUM_JOBS", &bcx.jobs().to_string())
         .env("TARGET", bcx.target_data.short_name(&unit.kind))
         .env("DEBUG", debug.to_string())
-        .env("OPT_LEVEL", &unit.profile.opt_level.to_string())
+        .env("OPT_LEVEL", &unit.profile.opt_level)
         .env(
             "PROFILE",
             match unit.profile.root {
@@ -299,11 +299,8 @@ fn build_work(cx: &mut Context<'_, '_>, unit: &Unit) -> CargoResult<Job> {
         cmd.env(&var, value);
     }
 
-    if let Some(linker) = &bcx.target_data.target_config(unit.kind).linker {
-        cmd.env(
-            "RUSTC_LINKER",
-            linker.val.clone().resolve_program(bcx.config),
-        );
+    if let Some(linker) = &cx.compilation.target_linker(unit.kind) {
+        cmd.env("RUSTC_LINKER", linker);
     }
 
     if let Some(links) = unit.pkg.manifest().links() {

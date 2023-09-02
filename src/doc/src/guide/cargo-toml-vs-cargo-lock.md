@@ -1,4 +1,4 @@
-## Cargo.toml vs Cargo.lock
+# Cargo.toml vs Cargo.lock
 
 `Cargo.toml` and `Cargo.lock` serve two different purposes. Before we talk
 about them, here’s a summary:
@@ -91,8 +91,8 @@ When we’re ready to opt in to a new version of the library, Cargo can
 re-calculate the dependencies and update things for us:
 
 ```console
-$ cargo update            # updates all dependencies
-$ cargo update -p regex   # updates just “regex”
+$ cargo update         # updates all dependencies
+$ cargo update regex   # updates just “regex”
 ```
 
 This will write out a new `Cargo.lock` with the new version information. Note

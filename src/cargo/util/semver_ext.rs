@@ -1,4 +1,5 @@
 use semver::{Comparator, Op, Version, VersionReq};
+use serde_untagged::UntaggedEnumVisitor;
 use std::fmt::{self, Display};
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
@@ -108,7 +109,7 @@ impl From<VersionReq> for OptVersionReq {
     }
 }
 
-#[derive(PartialEq, Eq, Hash, Copy, Clone, Debug)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Copy, Clone, Debug)]
 pub struct PartialVersion {
     pub major: u64,
     pub minor: Option<u64>,
@@ -142,10 +143,10 @@ impl std::str::FromStr for PartialVersion {
         let version_req = match semver::VersionReq::parse(value) {
             // Exclude semver operators like `^` and pre-release identifiers
             Ok(req) if value.chars().all(|c| c.is_ascii_digit() || c == '.') => req,
-            Err(_) if value.contains('+') => {
+            _ if value.contains('+') => {
                 anyhow::bail!("unexpected build field, expected a version like \"1.32\"")
             }
-            Err(_) if value.contains('-') => {
+            _ if value.contains('-') => {
                 anyhow::bail!("unexpected prerelease field, expected a version like \"1.32\"")
             }
             _ => anyhow::bail!("expected a version like \"1.32\""),
@@ -198,25 +199,10 @@ impl<'de> serde::Deserialize<'de> for PartialVersion {
     where
         D: serde::Deserializer<'de>,
     {
-        struct VersionVisitor;
-
-        impl<'de> serde::de::Visitor<'de> for VersionVisitor {
-            type Value = PartialVersion;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str("SemVer version")
-            }
-
-            fn visit_str<E>(self, string: &str) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                string.parse().map_err(serde::de::Error::custom)
-            }
-        }
-
-        let s = String::deserialize(deserializer)?;
-        s.parse().map_err(serde::de::Error::custom)
+        UntaggedEnumVisitor::new()
+            .expecting("SemVer version")
+            .string(|value| value.parse().map_err(serde::de::Error::custom))
+            .deserialize(deserializer)
     }
 }
 
