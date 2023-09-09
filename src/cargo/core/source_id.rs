@@ -1,8 +1,10 @@
 use crate::core::PackageId;
 use crate::sources::registry::CRATES_IO_HTTP_INDEX;
+use crate::sources::source::Source;
 use crate::sources::{DirectorySource, CRATES_IO_DOMAIN, CRATES_IO_INDEX, CRATES_IO_REGISTRY};
 use crate::sources::{GitSource, PathSource, RegistrySource};
-use crate::util::{config, CanonicalUrl, CargoResult, Config, IntoUrl};
+use crate::util::{config, CanonicalUrl, CargoResult, Config, IntoUrl, ToSemver};
+use anyhow::Context;
 use serde::de;
 use serde::ser;
 use std::cmp::{self, Ordering};
@@ -28,9 +30,9 @@ static SOURCE_ID_CACHE: OnceLock<Mutex<HashSet<&'static SourceIdInner>>> = OnceL
 /// `SourceId` is usually associated with an instance of [`Source`], which is
 /// supposed to provide a `SourceId` via [`Source::source_id`] method.
 ///
-/// [`Source`]: super::Source
-/// [`Source::source_id`]: super::Source::source_id
-/// [`PackageId`]: super::super::PackageId
+/// [`Source`]: crate::sources::source::Source
+/// [`Source::source_id`]: crate::sources::source::Source::source_id
+/// [`PackageId`]: super::PackageId
 #[derive(Clone, Copy, Eq, Debug)]
 pub struct SourceId {
     inner: &'static SourceIdInner,
@@ -148,10 +150,8 @@ impl SourceId {
     ///                     656c58fb7c5ef5f12bc747f");
     /// ```
     pub fn from_url(string: &str) -> CargoResult<SourceId> {
-        let mut parts = string.splitn(2, '+');
-        let kind = parts.next().unwrap();
-        let url = parts
-            .next()
+        let (kind, url) = string
+            .split_once('+')
             .ok_or_else(|| anyhow::format_err!("invalid source `{}`", string))?;
 
         match kind {
@@ -396,7 +396,7 @@ impl SourceId {
         self,
         config: &'a Config,
         yanked_whitelist: &HashSet<PackageId>,
-    ) -> CargoResult<Box<dyn super::Source + 'a>> {
+    ) -> CargoResult<Box<dyn Source + 'a>> {
         trace!("loading SourceId; {}", self);
         match self.inner.kind {
             SourceKind::Git(..) => Ok(Box::new(GitSource::new(self, config)?)),
@@ -432,11 +432,6 @@ impl SourceId {
         }
     }
 
-    /// Gets the value of the precise field.
-    pub fn precise(self) -> Option<&'static str> {
-        self.inner.precise.as_deref()
-    }
-
     /// Gets the Git reference if this is a git source, otherwise `None`.
     pub fn git_reference(self) -> Option<&'static GitReference> {
         match self.inner.kind {
@@ -445,12 +440,56 @@ impl SourceId {
         }
     }
 
+    /// Gets the value of the precise field.
+    pub fn precise(self) -> Option<&'static str> {
+        self.inner.precise.as_deref()
+    }
+
+    /// Check if the precise data field stores information for this `name`
+    /// from a call to [SourceId::with_precise_registry_version].
+    ///
+    /// If so return the version currently in the lock file and the version to be updated to.
+    /// If specified, our own source will have a precise version listed of the form
+    // `<pkg>=<p_req>-><f_req>` where `<pkg>` is the name of a crate on
+    // this source, `<p_req>` is the version installed and `<f_req>` is the
+    // version requested (argument to `--precise`).
+    pub fn precise_registry_version(
+        self,
+        name: &str,
+    ) -> Option<(semver::Version, semver::Version)> {
+        self.inner
+            .precise
+            .as_deref()
+            .and_then(|p| p.strip_prefix(name)?.strip_prefix('='))
+            .map(|p| {
+                let (current, requested) = p.split_once("->").unwrap();
+                (current.to_semver().unwrap(), requested.to_semver().unwrap())
+            })
+    }
+
     /// Creates a new `SourceId` from this source with the given `precise`.
     pub fn with_precise(self, v: Option<String>) -> SourceId {
         SourceId::wrap(SourceIdInner {
             precise: v,
             ..(*self.inner).clone()
         })
+    }
+
+    /// When updating a lock file on a version using `cargo update --precise`
+    /// the requested version is stored in the precise field.
+    /// On a registry dependency we also need to keep track of the package that
+    /// should be updated and even which of the versions should be updated.
+    /// All of this gets encoded in the precise field using this method.
+    /// The data can be read with [SourceId::precise_registry_version]
+    pub fn with_precise_registry_version(
+        self,
+        name: impl fmt::Display,
+        version: &semver::Version,
+        precise: &str,
+    ) -> CargoResult<SourceId> {
+        semver::Version::parse(precise)
+            .with_context(|| format!("invalid version format for precise version `{precise}`"))?;
+        Ok(self.with_precise(Some(format!("{}={}->{}", name, version, precise))))
     }
 
     /// Returns `true` if the remote registry is the standard <https://crates.io>.

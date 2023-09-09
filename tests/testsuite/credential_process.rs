@@ -129,10 +129,10 @@ fn publish() {
         .masquerade_as_nightly_cargo(&["credential-process"])
         .with_stderr(
             r#"[UPDATING] [..]
-{"v":1,"registry":{"index-url":"[..]","name":"alternative","headers":[..]},"kind":"get","operation":"read","args":[]}
+{"v":1,"registry":{"index-url":"[..]","name":"alternative","headers":[..]},"kind":"get","operation":"read"}
 [PACKAGING] foo v0.1.0 [..]
 [PACKAGED] [..]
-{"v":1,"registry":{"index-url":"[..]","name":"alternative"},"kind":"get","operation":"publish","name":"foo","vers":"0.1.0","cksum":"[..]","args":[]}
+{"v":1,"registry":{"index-url":"[..]","name":"alternative"},"kind":"get","operation":"publish","name":"foo","vers":"0.1.0","cksum":"[..]"}
 [UPLOADING] foo v0.1.0 [..]
 [UPLOADED] foo v0.1.0 [..]
 note: Waiting [..]
@@ -217,7 +217,7 @@ fn logout() {
         .masquerade_as_nightly_cargo(&["credential-process"])
         .replace_crates_io(server.index_url())
         .with_stderr(
-            r#"{"v":1,"registry":{"index-url":"https://github.com/rust-lang/crates.io-index","name":"crates-io"},"kind":"logout","args":[]}
+            r#"{"v":1,"registry":{"index-url":"https://github.com/rust-lang/crates.io-index","name":"crates-io"},"kind":"logout"}
 "#,
         )
         .run();
@@ -231,8 +231,8 @@ fn yank() {
         .masquerade_as_nightly_cargo(&["credential-process"])
         .with_stderr(
             r#"[UPDATING] [..]
-{"v":1,"registry":{"index-url":"[..]","name":"alternative","headers":[..]},"kind":"get","operation":"read","args":[]}
-{"v":1,"registry":{"index-url":"[..]","name":"alternative"},"kind":"get","operation":"yank","name":"foo","vers":"0.1.0","args":[]}
+{"v":1,"registry":{"index-url":"[..]","name":"alternative","headers":[..]},"kind":"get","operation":"read"}
+{"v":1,"registry":{"index-url":"[..]","name":"alternative"},"kind":"get","operation":"yank","name":"foo","vers":"0.1.0"}
 [YANK] foo@0.1.0
 "#,
         )
@@ -247,8 +247,8 @@ fn owner() {
         .masquerade_as_nightly_cargo(&["credential-process"])
         .with_stderr(
             r#"[UPDATING] [..]
-{"v":1,"registry":{"index-url":"[..]","name":"alternative","headers":[..]},"kind":"get","operation":"read","args":[]}
-{"v":1,"registry":{"index-url":"[..]","name":"alternative"},"kind":"get","operation":"owners","name":"foo","args":[]}
+{"v":1,"registry":{"index-url":"[..]","name":"alternative","headers":[..]},"kind":"get","operation":"read"}
+{"v":1,"registry":{"index-url":"[..]","name":"alternative"},"kind":"get","operation":"owners","name":"foo"}
 [OWNER] completed!
 "#,
         )
@@ -321,6 +321,36 @@ fn build_provider(name: &str, response: &str) -> String {
 }
 
 #[cargo_test]
+fn not_found() {
+    let registry = registry::RegistryBuilder::new()
+        .no_configure_token()
+        .http_index()
+        .auth_required()
+        .credential_provider(&[&build_provider(
+            "not_found",
+            r#"{"Err": {"kind": "not-found"}}"#,
+        )])
+        .build();
+
+    // should not suggest a _TOKEN environment variable since the cargo:token provider isn't available.
+    cargo_process("install -v foo -Zcredential-process -Zregistry-auth")
+        .masquerade_as_nightly_cargo(&["credential-process", "registry-auth"])
+        .replace_crates_io(registry.index_url())
+        .with_status(101)
+        .with_stderr(
+            r#"[UPDATING] [..]
+[CREDENTIAL] [..]not_found[..] get crates-io
+{"v":1[..]
+[ERROR] failed to query replaced source registry `crates-io`
+
+Caused by:
+  no token found, please run `cargo login`
+"#,
+        )
+        .run();
+}
+
+#[cargo_test]
 fn all_not_found() {
     let server = registry::RegistryBuilder::new()
         .no_configure_token()
@@ -342,6 +372,7 @@ fn all_not_found() {
     )
     .unwrap();
 
+    // should not suggest a _TOKEN environment variable since the cargo:token provider isn't available.
     cargo_process("install -v foo -Zcredential-process -Zregistry-auth")
         .masquerade_as_nightly_cargo(&["credential-process", "registry-auth"])
         .replace_crates_io(server.index_url())
@@ -349,12 +380,11 @@ fn all_not_found() {
         .with_stderr(
             r#"[UPDATING] [..]
 [CREDENTIAL] [..]not_found[..] get crates-io
-{"v":1,"registry":{"index-url":"[..]","name":"crates-io","headers":[[..]"WWW-Authenticate: Cargo login_url=\"https://test-registry-login/me\""[..]]},"kind":"get","operation":"read","args":[]}
+{"v":1,"registry":{"index-url":"[..]","name":"crates-io","headers":[[..]"WWW-Authenticate: Cargo login_url=\"https://test-registry-login/me\""[..]]},"kind":"get","operation":"read"}
 [ERROR] failed to query replaced source registry `crates-io`
 
 Caused by:
   no token found, please run `cargo login`
-  or use environment variable CARGO_REGISTRY_TOKEN
 "#,
         )
         .run();
@@ -390,7 +420,7 @@ fn all_not_supported() {
         .with_stderr(
             r#"[UPDATING] [..]
 [CREDENTIAL] [..]not_supported[..] get crates-io
-{"v":1,"registry":{"index-url":"[..]","name":"crates-io","headers":[[..]"WWW-Authenticate: Cargo login_url=\"https://test-registry-login/me\""[..]]},"kind":"get","operation":"read","args":[]}
+{"v":1,"registry":{"index-url":"[..]","name":"crates-io","headers":[[..]"WWW-Authenticate: Cargo login_url=\"https://test-registry-login/me\""[..]]},"kind":"get","operation":"read"}
 [ERROR] failed to query replaced source registry `crates-io`
 
 Caused by:
@@ -437,9 +467,9 @@ fn multiple_providers() {
         .with_stderr(
             r#"[UPDATING] [..]
 [CREDENTIAL] [..]url_not_supported[..] login crates-io
-{"v":1,"registry":{"index-url":"https://github.com/rust-lang/crates.io-index","name":"crates-io"},"kind":"login","token":"abcdefg","login-url":"[..]","args":[]}
+{"v":1,"registry":{"index-url":"https://github.com/rust-lang/crates.io-index","name":"crates-io"},"kind":"login","token":"abcdefg","login-url":"[..]"}
 [CREDENTIAL] [..]success_provider[..] login crates-io
-{"v":1,"registry":{"index-url":"https://github.com/rust-lang/crates.io-index","name":"crates-io"},"kind":"login","token":"abcdefg","login-url":"[..]","args":[]}
+{"v":1,"registry":{"index-url":"https://github.com/rust-lang/crates.io-index","name":"crates-io"},"kind":"login","token":"abcdefg","login-url":"[..]"}
 "#,
         )
         .run();
@@ -447,13 +477,31 @@ fn multiple_providers() {
 
 #[cargo_test]
 fn both_token_and_provider() {
+    let server = registry::RegistryBuilder::new()
+        .credential_provider(&["cargo:paseto"])
+        .build();
+
+    cargo_process("login -Z credential-process -Z asymmetric-token")
+        .masquerade_as_nightly_cargo(&["credential-process", "asymmetric-token"])
+        .replace_crates_io(server.index_url())
+        .with_stderr(
+            r#"[UPDATING] [..]
+[WARNING] registry `crates-io` has a token configured in [..] that will be ignored because this registry is configured to use credential-provider `cargo:paseto`
+k3.public[..]
+"#,
+        )
+        .run();
+}
+
+#[cargo_test]
+fn registry_provider_overrides_global() {
     let server = registry::RegistryBuilder::new().build();
     cargo_util::paths::append(
         &paths::home().join(".cargo/config"),
         format!(
             r#"
                 [registry]
-                credential-provider = ["cargo:token"]
+                global-credential-providers = ["should-not-be-called"]
             "#,
         )
         .as_bytes(),
@@ -462,10 +510,10 @@ fn both_token_and_provider() {
 
     cargo_process("login -Z credential-process -v abcdefg")
         .masquerade_as_nightly_cargo(&["credential-process"])
+        .env("CARGO_REGISTRY_CREDENTIAL_PROVIDER", "cargo:token")
         .replace_crates_io(server.index_url())
         .with_stderr(
             r#"[UPDATING] [..]
-[WARNING] registry `crates-io` has a token configured in [..]credentials.toml that will be ignored because a credential-provider is configured for this registry`
 [CREDENTIAL] cargo:token login crates-io
 [LOGIN] token for `crates-io` saved
 "#,
@@ -520,13 +568,13 @@ fn token_caching() {
 
     // Token should not be re-used if it is expired
     let expired_provider = build_provider(
-        "test-cred",
-        r#"{"Ok":{"kind":"get","token":"sekrit","cache":{"expires":0},"operation_independent":true}}"#,
+        "expired_provider",
+        r#"{"Ok":{"kind":"get","token":"sekrit","cache":"expires","expiration":0,"operation_independent":true}}"#,
     );
 
     // Token should not be re-used for a different operation if it is not operation_independent
     let non_independent_provider = build_provider(
-        "test-cred",
+        "non_independent_provider",
         r#"{"Ok":{"kind":"get","token":"sekrit","cache":"session","operation_independent":false}}"#,
     );
 
@@ -557,10 +605,10 @@ fn token_caching() {
         .build();
 
     let output = r#"[UPDATING] `alternative` index
-{"v":1,"registry":{"index-url":"[..]","name":"alternative"},"kind":"get","operation":"read","args":[]}
+{"v":1,"registry":{"index-url":"[..]","name":"alternative"},"kind":"get","operation":"read"}
 [PACKAGING] foo v0.1.0 [..]
 [PACKAGED] [..]
-{"v":1,"registry":{"index-url":"[..]","name":"alternative"},"kind":"get","operation":"publish","name":"foo","vers":"0.1.0","cksum":"[..]","args":[]}
+{"v":1,"registry":{"index-url":"[..]","name":"alternative"},"kind":"get","operation":"publish","name":"foo","vers":"0.1.0","cksum":"[..]"}
 [UPLOADING] foo v0.1.0 [..]
 [UPLOADED] foo v0.1.0 [..]
 note: Waiting [..]
