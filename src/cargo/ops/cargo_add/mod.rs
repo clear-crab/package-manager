@@ -12,9 +12,6 @@ use anyhow::Context as _;
 use cargo_util::paths;
 use indexmap::IndexSet;
 use itertools::Itertools;
-use termcolor::Color::Green;
-use termcolor::Color::Red;
-use termcolor::ColorSpec;
 use toml_edit::Item as TomlItem;
 
 use crate::core::dependency::DepKind;
@@ -26,6 +23,7 @@ use crate::core::Shell;
 use crate::core::Summary;
 use crate::core::Workspace;
 use crate::sources::source::QueryKind;
+use crate::util::style;
 use crate::util::toml_mut::dependency::Dependency;
 use crate::util::toml_mut::dependency::GitSource;
 use crate::util::toml_mut::dependency::MaybeWorkspace;
@@ -34,7 +32,7 @@ use crate::util::toml_mut::dependency::Source;
 use crate::util::toml_mut::dependency::WorkspaceSource;
 use crate::util::toml_mut::manifest::DepTable;
 use crate::util::toml_mut::manifest::LocalManifest;
-use crate::util::PartialVersion;
+use crate::util::RustVersion;
 use crate::CargoResult;
 use crate::Config;
 use crate_spec::CrateSpec;
@@ -504,9 +502,7 @@ fn get_existing_dependency(
         })
         .collect();
     possible.sort_by_key(|(key, _)| *key);
-    let (key, dep) = if let Some(item) = possible.pop() {
-        item
-    } else {
+    let Some((key, dep)) = possible.pop() else {
         return Ok(None);
     };
     let mut dep = dep?;
@@ -568,7 +564,7 @@ fn get_latest_dependency(
             })?;
 
             if config.cli_unstable().msrv_policy && honor_rust_version {
-                fn parse_msrv(comp: PartialVersion) -> (u64, u64, u64) {
+                fn parse_msrv(comp: &RustVersion) -> (u64, u64, u64) {
                     (comp.major, comp.minor.unwrap_or(0), comp.patch.unwrap_or(0))
                 }
 
@@ -628,7 +624,7 @@ fn get_latest_dependency(
 
 fn rust_version_incompat_error(
     dep: &str,
-    rust_version: PartialVersion,
+    rust_version: &RustVersion,
     lowest_rust_version: Option<&Summary>,
 ) -> anyhow::Error {
     let mut error_msg = format!(
@@ -968,19 +964,45 @@ fn print_dep_table_msg(shell: &mut Shell, dep: &DependencyUI) -> CargoResult<()>
         } else {
             "".to_owned()
         };
-        shell.write_stderr(
-            format_args!("{}Features{}:\n", prefix, suffix),
-            &ColorSpec::new(),
-        )?;
+
+        shell.write_stderr(format_args!("{}Features{}:\n", prefix, suffix), &style::NOP)?;
+
+        const MAX_FEATURE_PRINTS: usize = 50;
+
+        let mut activated_printed = 0;
+        let total_activated = activated.len();
         for feat in activated {
-            shell.write_stderr(&prefix, &ColorSpec::new())?;
-            shell.write_stderr('+', &ColorSpec::new().set_bold(true).set_fg(Some(Green)))?;
-            shell.write_stderr(format_args!(" {}\n", feat), &ColorSpec::new())?;
+            if activated_printed >= MAX_FEATURE_PRINTS {
+                let remaining = total_activated - activated_printed;
+                shell.write_stderr(
+                    format_args!("{prefix}... {remaining} more activated features\n"),
+                    &style::NOP,
+                )?;
+                break;
+            }
+
+            shell.write_stderr(&prefix, &style::NOP)?;
+            shell.write_stderr('+', &style::GOOD)?;
+            shell.write_stderr(format_args!(" {}\n", feat), &style::NOP)?;
+            activated_printed += 1;
         }
+
+        let mut deactivated_printed = 0;
+        let total_deactivated = deactivated.len();
         for feat in deactivated {
-            shell.write_stderr(&prefix, &ColorSpec::new())?;
-            shell.write_stderr('-', &ColorSpec::new().set_bold(true).set_fg(Some(Red)))?;
-            shell.write_stderr(format_args!(" {}\n", feat), &ColorSpec::new())?;
+            if activated_printed + deactivated_printed >= MAX_FEATURE_PRINTS {
+                let remaining = total_deactivated - deactivated_printed;
+                shell.write_stderr(
+                    format_args!("{prefix}... {remaining} more deactivated features\n"),
+                    &style::NOP,
+                )?;
+                break;
+            }
+
+            shell.write_stderr(&prefix, &style::NOP)?;
+            shell.write_stderr('-', &style::ERROR)?;
+            shell.write_stderr(format_args!(" {}\n", feat), &style::NOP)?;
+            deactivated_printed += 1;
         }
     }
 
@@ -989,9 +1011,8 @@ fn print_dep_table_msg(shell: &mut Shell, dep: &DependencyUI) -> CargoResult<()>
 
 // Based on Iterator::is_sorted from nightly std; remove in favor of that when stabilized.
 fn is_sorted(mut it: impl Iterator<Item = impl PartialOrd>) -> bool {
-    let mut last = match it.next() {
-        Some(e) => e,
-        None => return true,
+    let Some(mut last) = it.next() else {
+        return true;
     };
 
     for curr in it {

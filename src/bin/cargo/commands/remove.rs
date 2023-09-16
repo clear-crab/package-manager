@@ -50,6 +50,9 @@ pub fn cli() -> clap::Command {
         ])
         .arg_package("Package to remove from")
         .arg_manifest_path()
+        .after_help(color_print::cstr!(
+            "Run `<cyan,bold>cargo help remove</>` for more detailed information.\n"
+        ))
 }
 
 pub fn exec(config: &mut Config, args: &ArgMatches) -> CliResult {
@@ -285,7 +288,7 @@ fn spec_has_match(
         }
 
         let version_matches = match (spec.version(), dep.version()) {
-            (Some(v), Some(vq)) => semver::VersionReq::parse(vq)?.matches(v),
+            (Some(v), Some(vq)) => semver::VersionReq::parse(vq)?.matches(&v),
             (Some(_), None) => false,
             (None, None | Some(_)) => true,
         };

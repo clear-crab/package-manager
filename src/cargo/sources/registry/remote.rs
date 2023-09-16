@@ -70,7 +70,7 @@ pub struct RemoteRegistry<'cfg> {
     head: Cell<Option<git2::Oid>>,
     /// This stores sha value of the current HEAD commit for convenience.
     current_sha: Cell<Option<InternedString>>,
-    /// Whether this registry needs to update package informations.
+    /// Whether this registry needs to update package information.
     ///
     /// See [`RemoteRegistry::mark_updated`] on how to make sure a registry
     /// index is updated only once per session.
@@ -269,9 +269,8 @@ impl<'cfg> RegistryData for RemoteRegistry<'cfg> {
             }
 
             let object = entry.to_object(repo)?;
-            let blob = match object.as_blob() {
-                Some(blob) => blob,
-                None => anyhow::bail!("path `{}` is not a blob in the git repo", path.display()),
+            let Some(blob) = object.as_blob() else {
+                anyhow::bail!("path `{}` is not a blob in the git repo", path.display())
             };
 
             Ok(LoadResponse::Data {
