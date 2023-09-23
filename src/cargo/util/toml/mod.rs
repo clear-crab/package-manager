@@ -1407,9 +1407,7 @@ pub struct TomlPackage {
     authors: Option<MaybeWorkspaceVecString>,
     build: Option<StringOrBool>,
     metabuild: Option<StringOrVec>,
-    #[serde(rename = "default-target")]
     default_target: Option<String>,
-    #[serde(rename = "forced-target")]
     forced_target: Option<String>,
     links: Option<String>,
     exclude: Option<MaybeWorkspaceVecString>,
@@ -1838,6 +1836,13 @@ impl TomlManifest {
                 }
             }
         }
+
+        if !package_root.is_dir() {
+            bail!(
+                "package root '{}' is not a directory",
+                package_root.display()
+            );
+        };
 
         let mut nested_paths = vec![];
         let mut warnings = vec![];
