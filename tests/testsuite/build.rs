@@ -159,6 +159,29 @@ For more information, try '--help'.
 }
 
 #[cargo_test]
+fn cargo_compile_with_unsupported_short_config_flag() {
+    let p = project()
+        .file("Cargo.toml", &basic_bin_manifest("foo"))
+        .file("src/foo.rs", &main_file(r#""i am foo""#, &[]))
+        .build();
+
+    p.cargo("build -c net.git-fetch-with-cli=true")
+        .with_stderr(
+            "\
+error: unexpected argument '-c' found
+
+  tip: a similar argument exists: '--config'
+
+Usage: cargo[EXE] build [OPTIONS]
+
+For more information, try '--help'.
+",
+        )
+        .with_status(1)
+        .run();
+}
+
+#[cargo_test]
 fn cargo_compile_with_workspace_excluded() {
     let p = project().file("src/main.rs", "fn main() {}").build();
 
@@ -465,7 +488,7 @@ fn cargo_compile_with_forbidden_bin_target_name() {
 [ERROR] failed to parse manifest at `[..]`
 
 Caused by:
-  the binary target name `build` is forbidden, it conflicts with with cargo's build directory names
+  the binary target name `build` is forbidden, it conflicts with cargo's build directory names
 ",
         )
         .run();
