@@ -206,6 +206,30 @@ fn cargo_compile_manifest_path() {
 }
 
 #[cargo_test]
+fn cargo_compile_with_wrong_manifest_path_flag() {
+    let p = project()
+        .file("Cargo.toml", &basic_bin_manifest("foo"))
+        .file("src/foo.rs", &main_file(r#""i am foo""#, &[]))
+        .build();
+
+    p.cargo("build --path foo/Cargo.toml")
+        .cwd(p.root().parent().unwrap())
+        .with_stderr(
+            "\
+error: unexpected argument '--path' found
+
+  tip: a similar argument exists: '--manifest-path'
+
+Usage: cargo[EXE] build [OPTIONS]
+
+For more information, try '--help'.
+",
+        )
+        .with_status(1)
+        .run();
+}
+
+#[cargo_test]
 fn chdir_gated() {
     let p = project()
         .file("Cargo.toml", &basic_bin_manifest("foo"))
@@ -242,6 +266,33 @@ fn cargo_compile_directory_not_cwd() {
         .cwd(p.root().parent().unwrap())
         .run();
     assert!(p.bin("foo").is_file());
+}
+
+#[cargo_test]
+fn cargo_compile_with_unsupported_short_unstable_feature_flag() {
+    let p = project()
+        .file("Cargo.toml", &basic_bin_manifest("foo"))
+        .file("src/foo.rs", &main_file(r#""i am foo""#, &[]))
+        .file(".cargo/config.toml", &"")
+        .build();
+
+    p.cargo("-zunstable-options -C foo build")
+        .masquerade_as_nightly_cargo(&["chdir"])
+        .cwd(p.root().parent().unwrap())
+        .with_stderr(
+            "\
+error: unexpected argument '-z' found
+
+  tip: a similar argument exists: '-Z'
+
+Usage: cargo [..][OPTIONS] [COMMAND]
+       cargo [..][OPTIONS] -Zscript <MANIFEST_RS> [ARGS]...
+
+For more information, try '--help'.
+",
+        )
+        .with_status(1)
+        .run();
 }
 
 #[cargo_test]
@@ -4213,6 +4264,30 @@ fn cargo_build_empty_target() {
 }
 
 #[cargo_test]
+fn cargo_build_with_unsupported_short_target_flag() {
+    let p = project()
+        .file("Cargo.toml", &basic_bin_manifest("foo"))
+        .file("src/main.rs", "fn main() {}")
+        .build();
+
+    p.cargo("build -t")
+        .arg("")
+        .with_stderr(
+            "\
+error: unexpected argument '-t' found
+
+  tip: a similar argument exists: '--target'
+
+Usage: cargo[EXE] build [OPTIONS]
+
+For more information, try '--help'.
+",
+        )
+        .with_status(1)
+        .run();
+}
+
+#[cargo_test]
 fn build_all_workspace() {
     let p = project()
         .file(
@@ -4274,6 +4349,43 @@ fn build_all_exclude() {
 [FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
 ",
         )
+        .run();
+}
+
+#[cargo_test]
+fn cargo_build_with_unsupported_short_exclude_flag() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.1.0"
+
+                [workspace]
+                members = ["bar", "baz"]
+            "#,
+        )
+        .file("src/main.rs", "fn main() {}")
+        .file("bar/Cargo.toml", &basic_manifest("bar", "0.1.0"))
+        .file("bar/src/lib.rs", "pub fn bar() {}")
+        .file("baz/Cargo.toml", &basic_manifest("baz", "0.1.0"))
+        .file("baz/src/lib.rs", "pub fn baz() { break_the_build(); }")
+        .build();
+
+    p.cargo("build --workspace -x baz")
+        .with_stderr(
+            "\
+error: unexpected argument '-x' found
+
+  tip: a similar argument exists: '--exclude'
+
+Usage: cargo[EXE] build [OPTIONS]
+
+For more information, try '--help'.
+",
+        )
+        .with_status(1)
         .run();
 }
 

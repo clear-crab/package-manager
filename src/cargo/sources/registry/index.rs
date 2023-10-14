@@ -89,6 +89,7 @@ use crate::core::dependency::{Artifact, DepKind};
 use crate::core::Dependency;
 use crate::core::{PackageId, SourceId, Summary};
 use crate::sources::registry::{LoadResponse, RegistryData};
+use crate::util::cache_lock::CacheLockMode;
 use crate::util::interning::InternedString;
 use crate::util::IntoUrl;
 use crate::util::{internal, CargoResult, Config, Filesystem, OptVersionReq, RustVersion};
@@ -97,6 +98,7 @@ use cargo_util::{paths, registry::make_dep_path};
 use semver::Version;
 use serde::Deserialize;
 use std::borrow::Cow;
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -673,11 +675,8 @@ impl<'cfg> RegistryIndex<'cfg> {
                         (true, true) => s_vers == requested,
                         (true, false) => false,
                         (false, true) => {
-                            // Strip out the metadata.
-                            s_vers.major == requested.major
-                                && s_vers.minor == requested.minor
-                                && s_vers.patch == requested.patch
-                                && s_vers.pre == requested.pre
+                            // Compare disregarding the metadata.
+                            s_vers.cmp_precedence(requested) == Ordering::Equal
                         }
                         (false, false) => s_vers == requested,
                     }
@@ -823,7 +822,7 @@ impl Summaries {
                     // something in case of error.
                     if paths::create_dir_all(cache_path.parent().unwrap()).is_ok() {
                         let path = Filesystem::new(cache_path.clone());
-                        config.assert_package_cache_locked(&path);
+                        config.assert_package_cache_locked(CacheLockMode::DownloadExclusive, &path);
                         if let Err(e) = fs::write(cache_path, &cache_bytes) {
                             tracing::info!("failed to write cache: {}", e);
                         }

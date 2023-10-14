@@ -3,10 +3,12 @@ use crate::core::resolver::features::{CliFeatures, HasDevUnits};
 use crate::core::{PackageId, PackageIdSpec};
 use crate::core::{Resolve, SourceId, Workspace};
 use crate::ops;
+use crate::util::cache_lock::CacheLockMode;
 use crate::util::config::Config;
 use crate::util::style;
 use crate::util::CargoResult;
 use anstyle::Style;
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashSet};
 use tracing::debug;
 
@@ -48,7 +50,9 @@ pub fn update_lockfile(ws: &Workspace<'_>, opts: &UpdateOptions<'_>) -> CargoRes
 
     // Updates often require a lot of modifications to the registry, so ensure
     // that we're synchronized against other Cargos.
-    let _lock = ws.config().acquire_package_cache_lock()?;
+    let _lock = ws
+        .config()
+        .acquire_package_cache_lock(CacheLockMode::DownloadExclusive)?;
 
     let max_rust_version = ws.rust_version();
 
@@ -149,7 +153,11 @@ pub fn update_lockfile(ws: &Workspace<'_>, opts: &UpdateOptions<'_>) -> CargoRes
                 format!("{} -> v{}", removed[0], added[0].version())
             };
 
-            if removed[0].version() > added[0].version() {
+            // If versions differ only in build metadata, we call it an "update"
+            // regardless of whether the build metadata has gone up or down.
+            // This metadata is often stuff like git commit hashes, which are
+            // not meaningfully ordered.
+            if removed[0].version().cmp_precedence(added[0].version()) == Ordering::Greater {
                 print_change("Downgrading", msg, &style::WARN)?;
             } else {
                 print_change("Updating", msg, &style::GOOD)?;

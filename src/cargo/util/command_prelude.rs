@@ -64,9 +64,19 @@ pub trait CommandExt: Sized {
         all: &'static str,
         exclude: &'static str,
     ) -> Self {
+        let unsupported_short_arg = {
+            let value_parser = UnknownArgumentValueParser::suggest_arg("--exclude");
+            Arg::new("unsupported-short-exclude-flag")
+                .help("")
+                .short('x')
+                .value_parser(value_parser)
+                .action(ArgAction::SetTrue)
+                .hide(true)
+        };
         self.arg_package_spec_simple(package)
             ._arg(flag("workspace", all).help_heading(heading::PACKAGE_SELECTION))
             ._arg(multi_opt("exclude", "SPEC", exclude).help_heading(heading::PACKAGE_SELECTION))
+            ._arg(unsupported_short_arg)
     }
 
     fn arg_package_spec_simple(self, package: &'static str) -> Self {
@@ -232,10 +242,20 @@ pub trait CommandExt: Sized {
     }
 
     fn arg_target_triple(self, target: &'static str) -> Self {
+        let unsupported_short_arg = {
+            let value_parser = UnknownArgumentValueParser::suggest_arg("--target");
+            Arg::new("unsupported-short-target-flag")
+                .help("")
+                .short('t')
+                .value_parser(value_parser)
+                .action(ArgAction::SetTrue)
+                .hide(true)
+        };
         self._arg(
             optional_multi_opt("target", "TRIPLE", target)
                 .help_heading(heading::COMPILATION_OPTIONS),
         )
+        ._arg(unsupported_short_arg)
     }
 
     fn arg_target_dir(self) -> Self {
@@ -247,6 +267,20 @@ pub trait CommandExt: Sized {
     }
 
     fn arg_manifest_path(self) -> Self {
+        // We use `--manifest-path` instead of `--path`.
+        let unsupported_path_arg = {
+            let value_parser = UnknownArgumentValueParser::suggest_arg("--manifest-path");
+            flag("unsupported-path-flag", "")
+                .long("path")
+                .value_parser(value_parser)
+                .hide(true)
+        };
+        self.arg_manifest_path_without_unsupported_path_tip()
+            ._arg(unsupported_path_arg)
+    }
+
+    // `cargo add` has a `--path` flag to install a crate from a local path.
+    fn arg_manifest_path_without_unsupported_path_tip(self) -> Self {
         self._arg(
             opt("manifest-path", "Path to Cargo.toml")
                 .value_name("PATH")
@@ -338,7 +372,7 @@ pub trait CommandExt: Sized {
                 .value_parser(value_parser)
                 .hide(true)
         };
-        self._arg(flag("quiet", "Do not print cargo log messages").short('q'))
+        self.arg_quiet_without_unknown_silent_arg_tip()
             ._arg(unsupported_silent_arg)
     }
 
@@ -377,21 +411,6 @@ pub trait CommandExt: Sized {
             .help_heading(heading::COMPILATION_OPTIONS),
         )
         ._arg(unsupported_short_arg)
-    }
-
-    fn arg_config(self) -> Self {
-        let unsupported_short_arg = {
-            let value_parser = UnknownArgumentValueParser::suggest_arg("--config");
-            Arg::new("unsupported-short-config-flag")
-                .help("")
-                .short('c')
-                .value_parser(value_parser)
-                .action(ArgAction::SetTrue)
-                .global(true)
-                .hide(true)
-        };
-        self._arg(unsupported_short_arg)
-            ._arg(multi_opt("config", "KEY=VALUE", "Override a configuration value").global(true))
     }
 }
 
