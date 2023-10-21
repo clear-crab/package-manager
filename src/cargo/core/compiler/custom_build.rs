@@ -353,6 +353,10 @@ fn build_work(cx: &mut Context<'_, '_>, unit: &Unit) -> CargoResult<Job> {
     );
     cmd.env_remove("RUSTFLAGS");
 
+    if cx.bcx.ws.config().extra_verbose() {
+        cmd.display_env_vars();
+    }
+
     // Gather the set of native dependencies that this package has along with
     // some other variables to close over.
     //
@@ -399,10 +403,7 @@ fn build_work(cx: &mut Context<'_, '_>, unit: &Unit) -> CargoResult<Job> {
     paths::create_dir_all(&script_out_dir)?;
 
     let nightly_features_allowed = cx.bcx.config.nightly_features_allowed;
-    let extra_check_cfg = match cx.bcx.config.cli_unstable().check_cfg {
-        Some((_, _, _, output)) => output,
-        None => false,
-    };
+    let extra_check_cfg = cx.bcx.config.cli_unstable().check_cfg;
     let targets: Vec<Target> = unit.pkg.targets().to_vec();
     // Need a separate copy for the fresh closure.
     let targets_fresh = targets.clone();
@@ -1122,10 +1123,7 @@ fn prev_build_output(cx: &mut Context<'_, '_>, unit: &Unit) -> (Option<BuildOutp
             &unit.pkg.to_string(),
             &prev_script_out_dir,
             &script_out_dir,
-            match cx.bcx.config.cli_unstable().check_cfg {
-                Some((_, _, _, output)) => output,
-                None => false,
-            },
+            cx.bcx.config.cli_unstable().check_cfg,
             cx.bcx.config.nightly_features_allowed,
             unit.pkg.targets(),
         )

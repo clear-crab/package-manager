@@ -439,11 +439,9 @@ impl<'cfg> RegistryIndex<'cfg> {
     /// checking the integrity of a downloaded package matching the checksum in
     /// the index file, aka [`IndexSummary`].
     pub fn hash(&mut self, pkg: PackageId, load: &mut dyn RegistryData) -> Poll<CargoResult<&str>> {
-        let req = OptVersionReq::exact(pkg.version());
+        let req = OptVersionReq::lock_to_exact(pkg.version());
         let summary = self.summaries(pkg.name(), &req, load)?;
-        let summary = ready!(summary)
-            .filter(|s| s.package_id().version() == pkg.version())
-            .next();
+        let summary = ready!(summary).next();
         Poll::Ready(Ok(summary
             .ok_or_else(|| internal(format!("no hash listed for {}", pkg)))?
             .as_summary()
@@ -663,7 +661,7 @@ impl<'cfg> RegistryIndex<'cfg> {
 
         // Handle `cargo update --precise` here.
         let precise = source_id.precise_registry_version(name.as_str());
-        let summaries = summaries.filter(|s| match &precise {
+        let summaries = summaries.filter(|s| match precise {
             Some((current, requested)) => {
                 if req.matches(current) {
                     // Unfortunately crates.io allows versions to differ only
@@ -697,10 +695,8 @@ impl<'cfg> RegistryIndex<'cfg> {
         pkg: PackageId,
         load: &mut dyn RegistryData,
     ) -> Poll<CargoResult<bool>> {
-        let req = OptVersionReq::exact(pkg.version());
-        let found = ready!(self.summaries(pkg.name(), &req, load))?
-            .filter(|s| s.package_id().version() == pkg.version())
-            .any(|s| s.is_yanked());
+        let req = OptVersionReq::lock_to_exact(pkg.version());
+        let found = ready!(self.summaries(pkg.name(), &req, load))?.any(|s| s.is_yanked());
         Poll::Ready(Ok(found))
     }
 }

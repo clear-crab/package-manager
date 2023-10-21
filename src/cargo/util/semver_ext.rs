@@ -1,6 +1,5 @@
 use semver::{Comparator, Op, Version, VersionReq};
 use serde_untagged::UntaggedEnumVisitor;
-use std::cmp::Ordering;
 use std::fmt::{self, Display};
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
@@ -44,6 +43,13 @@ impl OptVersionReq {
         OptVersionReq::Req(VersionReq::exact(version))
     }
 
+    // Since some registries have allowed crate versions to differ only by build metadata,
+    // A query using OptVersionReq::exact return nondeterministic results.
+    // So we `lock_to` the exact version were interested in.
+    pub fn lock_to_exact(version: &Version) -> Self {
+        OptVersionReq::Locked(version.clone(), VersionReq::exact(version))
+    }
+
     pub fn is_exact(&self) -> bool {
         match self {
             OptVersionReq::Any => false,
@@ -84,7 +90,16 @@ impl OptVersionReq {
         match self {
             OptVersionReq::Any => true,
             OptVersionReq::Req(req) => req.matches(version),
-            OptVersionReq::Locked(v, _) => v.cmp_precedence(version) == Ordering::Equal,
+            OptVersionReq::Locked(v, _) => {
+                // Generally, cargo is of the opinion that semver metadata should be ignored.
+                // If your registry has two versions that only differing metadata you get the bugs you deserve.
+                // We also believe that lock files should ensure reproducibility
+                // and protect against mutations from the registry.
+                // In this circumstance these two goals are in conflict, and we pick reproducibility.
+                // If the lock file tells us that there is a version called `1.0.0+bar` then
+                // we should not silently use `1.0.0+foo` even though they have the same version.
+                v == version
+            }
         }
     }
 }
@@ -182,16 +197,25 @@ impl PartialVersion {
         }
     }
 
-    pub fn exact_req(&self) -> VersionReq {
-        VersionReq {
-            comparators: vec![Comparator {
-                op: semver::Op::Exact,
-                major: self.major,
-                minor: self.minor,
-                patch: self.patch,
-                pre: self.pre.as_ref().cloned().unwrap_or_default(),
-            }],
+    /// Check if this matches a version, including build metadata
+    ///
+    /// Build metadata does not affect version precedence but may be necessary for uniquely
+    /// identifying a package.
+    pub fn matches(&self, version: &Version) -> bool {
+        if !version.pre.is_empty() && self.pre.is_none() {
+            // Pre-release versions must be explicitly opted into, if for no other reason than to
+            // give us room to figure out and define the semantics
+            return false;
         }
+        self.major == version.major
+            && self.minor.map(|f| f == version.minor).unwrap_or(true)
+            && self.patch.map(|f| f == version.patch).unwrap_or(true)
+            && self.pre.as_ref().map(|f| f == &version.pre).unwrap_or(true)
+            && self
+                .build
+                .as_ref()
+                .map(|f| f == &version.build)
+                .unwrap_or(true)
     }
 }
 
@@ -306,41 +330,4 @@ fn is_req(value: &str) -> bool {
         return false;
     };
     "<>=^~".contains(first) || value.contains('*') || value.contains(',')
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn locked_has_the_same_with_exact() {
-        fn test_versions(target_ver: &str, vers: &[&str]) {
-            let ver = Version::parse(target_ver).unwrap();
-            let exact = OptVersionReq::exact(&ver);
-            let mut locked = exact.clone();
-            locked.lock_to(&ver);
-            for v in vers {
-                let v = Version::parse(v).unwrap();
-                assert_eq!(exact.matches(&v), locked.matches(&v));
-            }
-        }
-
-        test_versions(
-            "1.0.0",
-            &["1.0.0", "1.0.1", "0.9.9", "0.10.0", "0.1.0", "1.0.0-pre"],
-        );
-        test_versions("0.9.0", &["0.9.0", "0.9.1", "1.9.0", "0.0.9", "0.9.0-pre"]);
-        test_versions("0.0.2", &["0.0.2", "0.0.1", "0.0.3", "0.0.2-pre"]);
-        test_versions(
-            "0.1.0-beta2.a",
-            &[
-                "0.1.0-beta2.a",
-                "0.9.1",
-                "0.1.0",
-                "0.1.1-beta2.a",
-                "0.1.0-beta2",
-            ],
-        );
-        test_versions("0.1.0+meta", &["0.1.0", "0.1.0+meta", "0.1.0+any"]);
-    }
 }
