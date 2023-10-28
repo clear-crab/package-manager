@@ -109,6 +109,8 @@ resolve dependencies, and for guidelines on setting your own version. See the
 [SemVer compatibility] chapter for more details on exactly what constitutes a
 breaking change.
 
+This field is optional and defaults to `0.0.0`.  The field is required for publishing packages.
+
 [Resolver]: resolver.md
 [SemVer compatibility]: semver.md
 
@@ -470,23 +472,22 @@ if any of those files change.
 
 ### The `publish` field
 
-The `publish` field can be used to prevent a package from being published to a
-package registry (like *crates.io*) by mistake, for instance to keep a package
-private in a company.
-
-```toml
-[package]
-# ...
-publish = false
-```
-
-The value may also be an array of strings which are registry names that are
-allowed to be published to.
-
+The `publish` field can be used to control which registries names the package
+may be published to:
 ```toml
 [package]
 # ...
 publish = ["some-registry-name"]
+```
+
+To prevent a package from being published to a registry (like crates.io) by mistake,
+for instance to keep a package private in a company,
+you can omit the [`version`](#the-version-field) field.
+If you'd like to be more explicit, you can disable publishing:
+```toml
+[package]
+# ...
+publish = false
 ```
 
 If publish array contains a single registry, `cargo publish` command will use
@@ -510,6 +511,10 @@ name = "..."
 package-name = "my-awesome-android-app"
 assets = "path/to/static"
 ```
+
+You'll need to look in the documentation for your tool to see how to use this field.
+For Rust Projects that use `package.metadata` tables, see:
+- [docs.rs](https://docs.rs/about/metadata)
 
 There is a similar table at the workspace level at
 [`workspace.metadata`][workspace-metadata]. While cargo does not specify a
