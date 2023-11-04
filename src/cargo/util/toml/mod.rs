@@ -208,7 +208,7 @@ pub struct TomlManifest {
     build_dependencies: Option<BTreeMap<String, MaybeWorkspaceDependency>>,
     #[serde(rename = "build_dependencies")]
     build_dependencies2: Option<BTreeMap<String, MaybeWorkspaceDependency>>,
-    features: Option<BTreeMap<InternedString, Vec<InternedString>>>,
+    features: Option<BTreeMap<String, Vec<String>>>,
     target: Option<BTreeMap<String, TomlPlatform>>,
     replace: Option<BTreeMap<String, TomlDependency>>,
     patch: Option<BTreeMap<String, BTreeMap<String, TomlDependency>>>,
@@ -871,7 +871,17 @@ impl TomlManifest {
         let summary = Summary::new(
             pkgid,
             deps,
-            me.features.as_ref().unwrap_or(&empty_features),
+            &me.features
+                .as_ref()
+                .unwrap_or(&empty_features)
+                .iter()
+                .map(|(k, v)| {
+                    (
+                        InternedString::new(k),
+                        v.iter().map(InternedString::from).collect(),
+                    )
+                })
+                .collect(),
             package.links.as_deref(),
             rust_version.clone(),
         )?;
@@ -1271,7 +1281,7 @@ impl TomlManifest {
                 );
             }
 
-            let mut dep = replacement.to_dependency(spec.name().as_str(), cx, None)?;
+            let mut dep = replacement.to_dependency(spec.name(), cx, None)?;
             let version = spec.version().ok_or_else(|| {
                 anyhow!(
                     "replacements must specify a version \
@@ -1353,7 +1363,7 @@ impl TomlManifest {
         self.profile.is_some()
     }
 
-    pub fn features(&self) -> Option<&BTreeMap<InternedString, Vec<InternedString>>> {
+    pub fn features(&self) -> Option<&BTreeMap<String, Vec<String>>> {
         self.features.as_ref()
     }
 }
@@ -1520,25 +1530,23 @@ fn unique_build_targets(
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "kebab-case")]
 pub struct TomlWorkspace {
     members: Option<Vec<String>>,
-    #[serde(rename = "default-members")]
-    default_members: Option<Vec<String>>,
     exclude: Option<Vec<String>>,
+    default_members: Option<Vec<String>>,
     resolver: Option<String>,
+    metadata: Option<toml::Value>,
 
     // Properties that can be inherited by members.
     package: Option<InheritableFields>,
     dependencies: Option<BTreeMap<String, TomlDependency>>,
     lints: Option<TomlLints>,
-
-    // Note that this field must come last due to the way toml serialization
-    // works which requires tables to be emitted after all values.
-    metadata: Option<toml::Value>,
 }
 
 /// A group of fields that are inheritable by members of the workspace
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub struct InheritableFields {
     // We use skip here since it will never be present when deserializing
     // and we don't want it present when serializing
@@ -1556,7 +1564,6 @@ pub struct InheritableFields {
     keywords: Option<Vec<String>>,
     categories: Option<Vec<String>>,
     license: Option<String>,
-    #[serde(rename = "license-file")]
     license_file: Option<String>,
     repository: Option<String>,
     publish: Option<VecStringOrBool>,
@@ -1564,7 +1571,6 @@ pub struct InheritableFields {
     badges: Option<BTreeMap<String, BTreeMap<String, String>>>,
     exclude: Option<Vec<String>>,
     include: Option<Vec<String>>,
-    #[serde(rename = "rust-version")]
     rust_version: Option<RustVersion>,
     // We use skip here since it will never be present when deserializing
     // and we don't want it present when serializing
@@ -1669,7 +1675,7 @@ impl InheritableFields {
 pub struct TomlPackage {
     edition: Option<MaybeWorkspaceString>,
     rust_version: Option<MaybeWorkspaceRustVersion>,
-    name: InternedString,
+    name: String,
     version: Option<MaybeWorkspaceSemverVersion>,
     authors: Option<MaybeWorkspaceVecString>,
     build: Option<StringOrBool>,
@@ -1700,13 +1706,11 @@ pub struct TomlPackage {
     repository: Option<MaybeWorkspaceString>,
     resolver: Option<String>,
 
-    // Provide a helpful error message for a common user error.
+    metadata: Option<toml::Value>,
+
+    /// Provide a helpful error message for a common user error.
     #[serde(rename = "cargo-features", skip_serializing)]
     _invalid_cargo_features: Option<InvalidCargoFeatures>,
-
-    // Note that this field must come last due to the way toml serialization
-    // works which requires tables to be emitted after all values.
-    metadata: Option<toml::Value>,
 }
 
 impl TomlPackage {
@@ -1715,7 +1719,7 @@ impl TomlPackage {
         source_id: SourceId,
         version: semver::Version,
     ) -> CargoResult<PackageId> {
-        PackageId::new(self.name, version, source_id)
+        PackageId::new(&self.name, version, source_id)
     }
 }
 
@@ -2024,6 +2028,7 @@ impl<'de> de::Deserialize<'de> for MaybeWorkspaceBtreeMap {
 }
 
 #[derive(Deserialize, Serialize, Copy, Clone, Debug)]
+#[serde(rename_all = "kebab-case")]
 pub struct TomlWorkspaceField {
     #[serde(deserialize_with = "bool_no_false")]
     workspace: bool,
@@ -2054,7 +2059,7 @@ impl MaybeWorkspaceDependency {
     fn unused_keys(&self) -> Vec<String> {
         match self {
             MaybeWorkspaceDependency::Defined(d) => d.unused_keys(),
-            MaybeWorkspaceDependency::Workspace(w) => w.other.keys().cloned().collect(),
+            MaybeWorkspaceDependency::Workspace(w) => w.unused_keys.keys().cloned().collect(),
         }
     }
 }
@@ -2091,10 +2096,11 @@ pub struct TomlWorkspaceDependency {
     default_features2: Option<bool>,
     optional: Option<bool>,
     public: Option<bool>,
+
     /// This is here to provide a way to see the "unused manifest keys" when deserializing
     #[serde(skip_serializing)]
     #[serde(flatten)]
-    other: BTreeMap<String, toml::Value>,
+    unused_keys: BTreeMap<String, toml::Value>,
 }
 
 impl TomlWorkspaceDependency {
@@ -2202,7 +2208,7 @@ impl TomlDependency {
     fn unused_keys(&self) -> Vec<String> {
         match self {
             TomlDependency::Simple(_) => vec![],
-            TomlDependency::Detailed(detailed) => detailed.other.keys().cloned().collect(),
+            TomlDependency::Detailed(detailed) => detailed.unused_keys.keys().cloned().collect(),
         }
     }
 }
@@ -2316,10 +2322,11 @@ pub struct DetailedTomlDependency<P: Clone = String> {
     lib: Option<bool>,
     /// A platform name, like `x86_64-apple-darwin`
     target: Option<String>,
+
     /// This is here to provide a way to see the "unused manifest keys" when deserializing
     #[serde(skip_serializing)]
     #[serde(flatten)]
-    other: BTreeMap<String, toml::Value>,
+    unused_keys: BTreeMap<String, toml::Value>,
 }
 
 impl DetailedTomlDependency {
@@ -2625,16 +2632,16 @@ impl<P: Clone> Default for DetailedTomlDependency<P> {
             artifact: Default::default(),
             lib: Default::default(),
             target: Default::default(),
-            other: Default::default(),
+            unused_keys: Default::default(),
         }
     }
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
-pub struct TomlProfiles(BTreeMap<InternedString, TomlProfile>);
+pub struct TomlProfiles(BTreeMap<String, TomlProfile>);
 
 impl TomlProfiles {
-    pub fn get_all(&self) -> &BTreeMap<InternedString, TomlProfile> {
+    pub fn get_all(&self) -> &BTreeMap<String, TomlProfile> {
         &self.0
     }
 
@@ -2664,7 +2671,7 @@ impl TomlProfiles {
 pub struct TomlProfile {
     pub opt_level: Option<TomlOptLevel>,
     pub lto: Option<StringOrBool>,
-    pub codegen_backend: Option<InternedString>,
+    pub codegen_backend: Option<String>,
     pub codegen_units: Option<u32>,
     pub debug: Option<TomlDebugInfo>,
     pub split_debuginfo: Option<String>,
@@ -2673,15 +2680,17 @@ pub struct TomlProfile {
     pub panic: Option<String>,
     pub overflow_checks: Option<bool>,
     pub incremental: Option<bool>,
-    pub dir_name: Option<InternedString>,
-    pub inherits: Option<InternedString>,
+    pub dir_name: Option<String>,
+    pub inherits: Option<String>,
     pub strip: Option<StringOrBool>,
     // Note that `rustflags` is used for the cargo-feature `profile_rustflags`
-    pub rustflags: Option<Vec<InternedString>>,
+    pub rustflags: Option<Vec<String>>,
     // These two fields must be last because they are sub-tables, and TOML
     // requires all non-tables to be listed first.
     pub package: Option<BTreeMap<ProfilePackageSpec, TomlProfile>>,
     pub build_override: Option<Box<TomlProfile>>,
+    /// Unstable feature `-Ztrim-paths`.
+    pub trim_paths: Option<TomlTrimPaths>,
 }
 
 impl TomlProfile {
@@ -2712,7 +2721,7 @@ impl TomlProfile {
         // Profile name validation
         Self::validate_name(name)?;
 
-        if let Some(dir_name) = self.dir_name {
+        if let Some(dir_name) = &self.dir_name {
             // This is disabled for now, as we would like to stabilize named
             // profiles without this, and then decide in the future if it is
             // needed. This helps simplify the UI a little.
@@ -2725,7 +2734,7 @@ impl TomlProfile {
         }
 
         // `inherits` validation
-        if matches!(self.inherits.map(|s| s.as_str()), Some("debug")) {
+        if matches!(self.inherits.as_deref(), Some("debug")) {
             bail!(
                 "profile.{}.inherits=\"debug\" should be profile.{}.inherits=\"dev\"",
                 name,
@@ -2882,6 +2891,15 @@ impl TomlProfile {
                 _ => {}
             }
         }
+        if self.trim_paths.is_some() {
+            match (
+                features.require(Feature::trim_paths()),
+                cli_unstable.trim_paths,
+            ) {
+                (Err(e), false) => return Err(e),
+                _ => {}
+            }
+        }
         Ok(())
     }
 
@@ -2915,8 +2933,8 @@ impl TomlProfile {
             self.lto = Some(v.clone());
         }
 
-        if let Some(v) = profile.codegen_backend {
-            self.codegen_backend = Some(v);
+        if let Some(v) = &profile.codegen_backend {
+            self.codegen_backend = Some(v.clone());
         }
 
         if let Some(v) = profile.codegen_units {
@@ -2979,15 +2997,19 @@ impl TomlProfile {
         }
 
         if let Some(v) = &profile.inherits {
-            self.inherits = Some(*v);
+            self.inherits = Some(v.clone());
         }
 
         if let Some(v) = &profile.dir_name {
-            self.dir_name = Some(*v);
+            self.dir_name = Some(v.clone());
         }
 
         if let Some(v) = &profile.strip {
             self.strip = Some(v.clone());
+        }
+
+        if let Some(v) = &profile.trim_paths {
+            self.trim_paths = Some(v.clone())
         }
     }
 }
@@ -3157,6 +3179,122 @@ impl<'de> de::Deserialize<'de> for TomlDebugInfo {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Ord, PartialOrd, Hash, Serialize)]
+#[serde(untagged, rename_all = "kebab-case")]
+pub enum TomlTrimPaths {
+    Values(Vec<TomlTrimPathsValue>),
+    All,
+}
+
+impl TomlTrimPaths {
+    pub fn none() -> Self {
+        TomlTrimPaths::Values(Vec::new())
+    }
+
+    pub fn is_none(&self) -> bool {
+        match self {
+            TomlTrimPaths::Values(v) => v.is_empty(),
+            TomlTrimPaths::All => false,
+        }
+    }
+}
+
+impl<'de> de::Deserialize<'de> for TomlTrimPaths {
+    fn deserialize<D>(d: D) -> Result<TomlTrimPaths, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        use serde::de::Error as _;
+        let expecting = r#"a boolean, "none", "diagnostics", "macro", "object", "all", or an array with these options"#;
+        UntaggedEnumVisitor::new()
+            .expecting(expecting)
+            .bool(|value| {
+                Ok(if value {
+                    TomlTrimPaths::All
+                } else {
+                    TomlTrimPaths::none()
+                })
+            })
+            .string(|v| match v {
+                "none" => Ok(TomlTrimPaths::none()),
+                "all" => Ok(TomlTrimPaths::All),
+                v => {
+                    let d = v.into_deserializer();
+                    let err = |_: D::Error| {
+                        serde_untagged::de::Error::custom(format!("expected {expecting}"))
+                    };
+                    TomlTrimPathsValue::deserialize(d)
+                        .map_err(err)
+                        .map(|v| v.into())
+                }
+            })
+            .seq(|seq| {
+                let seq: Vec<String> = seq.deserialize()?;
+                let seq: Vec<_> = seq
+                    .into_iter()
+                    .map(|s| TomlTrimPathsValue::deserialize(s.into_deserializer()))
+                    .collect::<Result<_, _>>()?;
+                Ok(seq.into())
+            })
+            .deserialize(d)
+    }
+}
+
+impl fmt::Display for TomlTrimPaths {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TomlTrimPaths::All => write!(f, "all"),
+            TomlTrimPaths::Values(v) if v.is_empty() => write!(f, "none"),
+            TomlTrimPaths::Values(v) => {
+                let mut iter = v.iter();
+                if let Some(value) = iter.next() {
+                    write!(f, "{value}")?;
+                }
+                for value in iter {
+                    write!(f, ",{value}")?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+impl From<TomlTrimPathsValue> for TomlTrimPaths {
+    fn from(value: TomlTrimPathsValue) -> Self {
+        TomlTrimPaths::Values(vec![value])
+    }
+}
+
+impl From<Vec<TomlTrimPathsValue>> for TomlTrimPaths {
+    fn from(value: Vec<TomlTrimPathsValue>) -> Self {
+        TomlTrimPaths::Values(value)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TomlTrimPathsValue {
+    Diagnostics,
+    Macro,
+    Object,
+}
+
+impl TomlTrimPathsValue {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TomlTrimPathsValue::Diagnostics => "diagnostics",
+            TomlTrimPathsValue::Macro => "macro",
+            TomlTrimPathsValue::Object => "object",
+        }
+    }
+}
+
+impl fmt::Display for TomlTrimPathsValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
 type TomlLibTarget = TomlTarget;
 type TomlBinTarget = TomlTarget;
 type TomlExampleTarget = TomlTarget;
@@ -3246,13 +3384,12 @@ impl TomlTarget {
 
 /// Corresponds to a `target` entry, but `TomlTarget` is already used.
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "kebab-case")]
 struct TomlPlatform {
     dependencies: Option<BTreeMap<String, MaybeWorkspaceDependency>>,
-    #[serde(rename = "build-dependencies")]
     build_dependencies: Option<BTreeMap<String, MaybeWorkspaceDependency>>,
     #[serde(rename = "build_dependencies")]
     build_dependencies2: Option<BTreeMap<String, MaybeWorkspaceDependency>>,
-    #[serde(rename = "dev-dependencies")]
     dev_dependencies: Option<BTreeMap<String, MaybeWorkspaceDependency>>,
     #[serde(rename = "dev_dependencies")]
     dev_dependencies2: Option<BTreeMap<String, MaybeWorkspaceDependency>>,
@@ -3260,6 +3397,7 @@ struct TomlPlatform {
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(expecting = "a lints table")]
+#[serde(rename_all = "kebab-case")]
 pub struct MaybeWorkspaceLints {
     #[serde(skip_serializing_if = "is_false")]
     #[serde(deserialize_with = "bool_no_false", default)]
