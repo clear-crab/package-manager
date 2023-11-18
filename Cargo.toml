@@ -73,6 +73,8 @@ pretty_assertions = "1.4.0"
 proptest = "1.3.1"
 pulldown-cmark = { version = "0.9.3", default-features = false }
 rand = "0.8.5"
+regex = "1.9.3"
+rusqlite = { version = "0.29.0", features = ["bundled"] }
 rustfix = "0.6.1"
 same-file = "1.0.6"
 security-framework = "2.9.2"
@@ -104,9 +106,23 @@ varisat = "0.2.2"
 walkdir = "2.4.0"
 windows-sys = "0.48"
 
+[workspace.lints.rust]
+rust_2018_idioms = "warn" # TODO: could this be removed?
+
+[workspace.lints.rustdoc]
+private_intra_doc_links = "allow"
+
+[workspace.lints.clippy]
+all = { level = "allow", priority = -1 }
+dbg_macro = "warn"
+disallowed_methods = "warn"
+print_stderr = "warn"
+print_stdout = "warn"
+self_named_module_files = "warn"
+
 [package]
 name = "cargo"
-version = "0.76.0"
+version = "0.77.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
@@ -162,6 +178,8 @@ pasetors.workspace = true
 pathdiff.workspace = true
 pulldown-cmark.workspace = true
 rand.workspace = true
+regex.workspace = true
+rusqlite.workspace = true
 rustfix.workspace = true
 semver.workspace = true
 serde = { workspace = true, features = ["derive"] }
@@ -230,3 +248,6 @@ vendored-openssl = ["openssl/vendored"]
 vendored-libgit2 = ["libgit2-sys/vendored"]
 # This is primarily used by rust-lang/rust distributing cargo the executable.
 all-static = ['vendored-openssl', 'curl/static-curl', 'curl/force-system-lib-on-osx']
+
+[lints]
+workspace = true

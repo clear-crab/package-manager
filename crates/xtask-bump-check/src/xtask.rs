@@ -41,7 +41,11 @@ pub fn cli() -> clap::Command {
             .action(ArgAction::Count)
             .global(true),
         )
-        .arg_quiet()
+        .arg(
+            flag("quiet", "Do not print cargo log messages")
+                .short('q')
+                .global(true),
+        )
         .arg(
             opt("color", "Coloring: auto, always, never")
                 .value_name("WHEN")
@@ -373,6 +377,7 @@ fn check_crates_io<'a>(
                 "`{name}@{current}` needs a bump because its should have a version newer than crates.io: {:?}`",
                 possibilities
                     .iter()
+                    .map(|s| s.as_summary())
                     .map(|s| format!("{}@{}", s.name(), s.version()))
                     .collect::<Vec<_>>(),
             );
