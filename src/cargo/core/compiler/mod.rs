@@ -662,6 +662,15 @@ fn prepare_rustc(cx: &Context<'_, '_>, unit: &Unit) -> CargoResult<ProcessBuilde
     let mut base = cx
         .compilation
         .rustc_process(unit, is_primary, is_workspace)?;
+    build_base_args(cx, &mut base, unit)?;
+
+    base.inherit_jobserver(&cx.jobserver);
+    build_deps_args(&mut base, cx, unit)?;
+    add_cap_lints(cx.bcx, unit, &mut base);
+    base.args(cx.bcx.rustflags_args(unit));
+    if cx.bcx.config.cli_unstable().binary_dep_depinfo {
+        base.arg("-Z").arg("binary-dep-depinfo");
+    }
 
     if is_primary {
         base.env("CARGO_PRIMARY_PACKAGE", "1");
@@ -671,15 +680,17 @@ fn prepare_rustc(cx: &Context<'_, '_>, unit: &Unit) -> CargoResult<ProcessBuilde
         let tmp = cx.files().layout(unit.kind).prepare_tmp()?;
         base.env("CARGO_TARGET_TMPDIR", tmp.display().to_string());
     }
-
-    base.inherit_jobserver(&cx.jobserver);
-    build_base_args(cx, &mut base, unit)?;
-    build_deps_args(&mut base, cx, unit)?;
-    add_cap_lints(cx.bcx, unit, &mut base);
-    base.args(cx.bcx.rustflags_args(unit));
-    if cx.bcx.config.cli_unstable().binary_dep_depinfo {
-        base.arg("-Z").arg("binary-dep-depinfo");
+    if cx.bcx.config.nightly_features_allowed {
+        // This must come after `build_base_args` (which calls `add_path_args`) so that the `cwd`
+        // is set correctly.
+        base.env(
+            "CARGO_RUSTC_CURRENT_DIR",
+            base.get_cwd()
+                .map(|c| c.display().to_string())
+                .unwrap_or(String::new()),
+        );
     }
+
     Ok(base)
 }
 
@@ -1243,24 +1254,31 @@ fn trim_paths_args(
 fn check_cfg_args(cx: &Context<'_, '_>, unit: &Unit) -> Vec<OsString> {
     if cx.bcx.config.cli_unstable().check_cfg {
         // This generate something like this:
-        //  - cfg(feature, values())
+        //  - cfg()
         //  - cfg(feature, values("foo", "bar"))
         //
         // NOTE: Despite only explicitly specifying `feature`, well known names and values
         // are implicitly enabled when one or more `--check-cfg` argument is passed.
+        // NOTE: Never generate a empty `values()` since it would mean that it's possible
+        // to have `cfg(feature)` without a feature name which is impossible.
 
         let gross_cap_estimation = unit.pkg.summary().features().len() * 7 + 25;
         let mut arg_feature = OsString::with_capacity(gross_cap_estimation);
-        arg_feature.push("cfg(feature, values(");
-        for (i, feature) in unit.pkg.summary().features().keys().enumerate() {
-            if i != 0 {
-                arg_feature.push(", ");
+
+        arg_feature.push("cfg(");
+        if !unit.pkg.summary().features().is_empty() {
+            arg_feature.push("feature, values(");
+            for (i, feature) in unit.pkg.summary().features().keys().enumerate() {
+                if i != 0 {
+                    arg_feature.push(", ");
+                }
+                arg_feature.push("\"");
+                arg_feature.push(feature);
+                arg_feature.push("\"");
             }
-            arg_feature.push("\"");
-            arg_feature.push(feature);
-            arg_feature.push("\"");
+            arg_feature.push(")");
         }
-        arg_feature.push("))");
+        arg_feature.push(")");
 
         vec![
             OsString::from("-Zunstable-options"),
