@@ -422,7 +422,7 @@ fn rustc(cx: &mut Context<'_, '_>, unit: &Unit, exec: &Arc<dyn Executor>) -> Car
                     };
                     let errors = match output_options.errors_seen {
                         0 => String::new(),
-                        1 => " due to previous error".to_string(),
+                        1 => " due to 1 previous error".to_string(),
                         count => format!(" due to {} previous errors", count),
                     };
                     let name = descriptive_pkg_name(&name, &target, &mode);
@@ -743,7 +743,7 @@ fn prepare_rustdoc(cx: &Context<'_, '_>, unit: &Unit) -> CargoResult<ProcessBuil
             .arg(scrape_output_path(cx, unit)?);
 
         // Only scrape example for items from crates in the workspace, to reduce generated file size
-        for pkg in cx.bcx.ws.members() {
+        for pkg in cx.bcx.packages.packages() {
             let names = pkg
                 .targets()
                 .iter()
@@ -1214,8 +1214,6 @@ fn trim_paths_args(
         }
         remap
     };
-    cmd.arg(sysroot_remap);
-
     let package_remap = {
         let pkg_root = unit.pkg.root();
         let ws_root = cx.bcx.ws.root();
@@ -1242,7 +1240,11 @@ fn trim_paths_args(
         }
         remap
     };
+
+    // Order of `--remap-path-prefix` flags is important for `-Zbuild-std`.
+    // We want to show `/rustc/<hash>/library/std` instead of `std-0.0.0`.
     cmd.arg(package_remap);
+    cmd.arg(sysroot_remap);
 
     Ok(())
 }

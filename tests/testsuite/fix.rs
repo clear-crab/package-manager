@@ -29,7 +29,7 @@ fn do_not_fix_broken_builds() {
     p.cargo("fix --allow-no-vcs")
         .env("__CARGO_FIX_YOLO", "1")
         .with_status(101)
-        .with_stderr_contains("[ERROR] could not compile `foo` (lib) due to previous error")
+        .with_stderr_contains("[ERROR] could not compile `foo` (lib) due to 1 previous error")
         .run();
     assert!(p.read_file("src/lib.rs").contains("let mut x = 3;"));
 }
@@ -110,6 +110,7 @@ fn rustc_shim_for_cargo_fix() -> Project {
                     }
                     let status = Command::new("rustc")
                         .args(env::args().skip(1))
+                        .env_remove("CARGO_MAKEFLAGS")
                         .status()
                         .expect("failed to run rustc");
                     process::exit(status.code().unwrap_or(2));
