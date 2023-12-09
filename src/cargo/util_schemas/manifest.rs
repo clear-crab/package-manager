@@ -15,8 +15,8 @@ use serde::ser;
 use serde::{Deserialize, Serialize};
 use serde_untagged::UntaggedEnumVisitor;
 
-use crate::core::PackageIdSpec;
 use crate::util::RustVersion;
+use crate::util_schemas::core::PackageIdSpec;
 
 /// This type is used to deserialize `Cargo.toml` files.
 #[derive(Debug, Deserialize, Serialize)]
@@ -530,6 +530,13 @@ impl TomlDependency {
     pub fn is_optional(&self) -> bool {
         match self {
             TomlDependency::Detailed(d) => d.optional.unwrap_or(false),
+            TomlDependency::Simple(..) => false,
+        }
+    }
+
+    pub fn is_public(&self) -> bool {
+        match self {
+            TomlDependency::Detailed(d) => d.public.unwrap_or(false),
             TomlDependency::Simple(..) => false,
         }
     }
