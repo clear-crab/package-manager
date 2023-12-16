@@ -745,9 +745,9 @@ dependencies = [
 
 [[package]]
 name = "curl-sys"
-version = "0.4.68+curl-8.4.0"
+version = "0.4.70+curl-8.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4a0d18d88360e374b16b2273c832b5e57258ffc1d4aa4f96b108e0738d5752f"
+checksum = "3c0333d8849afe78a4c8102a429a446bfdd055832af071945520e835ae2d841e"
 dependencies = [
  "cc",
  "libc",
@@ -911,6 +911,15 @@ name = "faster-hex"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "239f7bfb930f820ab16a9cd95afc26f88264cf6905c960b340a615384aa3338a"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "faster-hex"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2a2b11eda1d40935b26cf18f6833c526845ae8c41e58d09af6adeb6f0269183"
 dependencies = [
  "serde",
 ]
@@ -1337,11 +1346,11 @@ dependencies = [
 
 [[package]]
 name = "gix-hash"
-version = "0.13.2"
+version = "0.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "99c1e554a87759e672c7d2e37211e761aa390c61ffcd3753a57c51173143f3cb"
+checksum = "1f8cf8c2266f63e582b7eb206799b63aa5fa68ee510ad349f637dfe2d0653de0"
 dependencies = [
- "faster-hex",
+ "faster-hex 0.9.0",
  "thiserror",
 ]
 
@@ -1370,9 +1379,9 @@ dependencies = [
 
 [[package]]
 name = "gix-index"
-version = "0.27.0"
+version = "0.27.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "65ce8d03ec25de952be7d2a9adce2a4c2cb8f7fc2d4c25be91301be9707f380b"
+checksum = "f3f308f5cd2992e96a274b0d1931e9a0e44fdcba87695ead3f6df30d8a697e9c"
 dependencies = [
  "bitflags 2.4.1",
  "bstr",
@@ -1496,7 +1505,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03b9fcc4425bd64c585440d14e5d2405a399f323429401571ba56a2c6d111865"
 dependencies = [
  "bstr",
- "faster-hex",
+ "faster-hex 0.8.1",
  "gix-trace",
  "thiserror",
 ]
@@ -1508,7 +1517,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "50052c0f76c5af5acda41177fb55b60c1e484cc246ae919d8d21129cd1000a4e"
 dependencies = [
  "bstr",
- "faster-hex",
+ "faster-hex 0.8.1",
  "gix-trace",
  "thiserror",
 ]
@@ -2313,9 +2322,9 @@ dependencies = [
 
 [[package]]
 name = "openssl"
-version = "0.10.57"
+version = "0.10.61"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bac25ee399abb46215765b1cb35bc0212377e58a061560d8b29b024fd0430e7c"
+checksum = "6b8419dc8cc6d866deb801274bba2e6f8f6108c1bb7fcc10ee5ab864931dbb45"
 dependencies = [
  "bitflags 2.4.1",
  "cfg-if",
@@ -2345,18 +2354,18 @@ checksum = "ff011a302c396a5197692431fc1948019154afc178baf7d8e37367442a4601cf"
 
 [[package]]
 name = "openssl-src"
-version = "111.28.0+1.1.1w"
+version = "300.2.1+3.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ce95ee1f6f999dfb95b8afd43ebe442758ea2104d1ccb99a94c30db22ae701f"
+checksum = "3fe476c29791a5ca0d1273c697e96085bbabbbea2ef7afd5617e78a4b40332d3"
 dependencies = [
  "cc",
 ]
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.92"
+version = "0.9.97"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db7e971c2c2bba161b2d2fdf37080177eff520b3bc044787c7f1f5f9e78d869b"
+checksum = "c3eaad34cdd97d81de97964fc7f29e2d104f483840d906ef56daa1912338460b"
 dependencies = [
  "cc",
  "libc",
@@ -3927,18 +3936,18 @@ dependencies = [
 
 [[package]]
 name = "zerocopy"
-version = "0.7.29"
+version = "0.7.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d075cf85bbb114e933343e087b92f2146bac0d55b534cbb8188becf0039948e"
+checksum = "1c4061bedbb353041c12f413700357bec76df2c7e2ca8e4df8bac24c6bf68e3d"
 dependencies = [
  "zerocopy-derive",
 ]
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.7.29"
+version = "0.7.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86cd5ca076997b97ef09d3ad65efe811fa68c9e874cb636ccb211223a813b0c2"
+checksum = "b3c129550b3e6de3fd0ba67ba5c81818f9805e58b8d7fee80a3a59d2c9fc601a"
 dependencies = [
  "proc-macro2",
  "quote",
