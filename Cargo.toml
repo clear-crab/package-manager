@@ -14,6 +14,8 @@ exclude = [
 rust-version = "1.73"  # MSRV:1
 edition = "2021"
 license = "MIT OR Apache-2.0"
+homepage = "https://github.com/rust-lang/cargo"
+repository = "https://github.com/rust-lang/cargo"
 
 [workspace.dependencies]
 anstream = "0.6.5"
@@ -30,6 +32,7 @@ cargo-platform = { path = "crates/cargo-platform", version = "0.1.4" }
 cargo-test-macro = { path = "crates/cargo-test-macro" }
 cargo-test-support = { path = "crates/cargo-test-support" }
 cargo-util = { version = "0.2.6", path = "crates/cargo-util" }
+cargo-util-schemas = { version = "0.2.0", path = "crates/cargo-util-schemas" }
 cargo_metadata = "0.18.1"
 clap = "4.4.10"
 color-print = "0.3.5"
@@ -45,7 +48,7 @@ git2-curl = "0.19.0"
 gix = { version = "0.56.0", default-features = false, features = ["blocking-http-transport-curl", "progress-tree", "revision"] }
 gix-features-for-configuration-only = { version = "0.35.0", package = "gix-features", features = [ "parallel" ] }
 glob = "0.3.1"
-handlebars = { version = "3.5.5", features = ["dir_source"] }
+handlebars = { version = "4.5.0", features = ["dir_source"] }
 hex = "0.4.3"
 hmac = "0.12.1"
 home = "0.5.5"
@@ -63,7 +66,7 @@ libloading = "0.8.1"
 memchr = "2.6.4"
 miow = "0.6.0"
 opener = "0.6.1"
-openssl ="0.10.61"
+openssl = "0.10.57"
 os_info = "3.7.0"
 pasetors = { version = "0.6.7", features = ["v3", "paserk", "std", "serde"] }
 pathdiff = "0.2"
@@ -121,12 +124,12 @@ self_named_module_files = "warn"
 
 [package]
 name = "cargo"
-version = "0.77.0"
+version = "0.78.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-homepage = "https://crates.io"
-repository = "https://github.com/rust-lang/cargo"
+homepage = "https://doc.rust-lang.org/cargo/index.html"
+repository.workspace = true
 documentation = "https://docs.rs/cargo"
 description = """
 Cargo, a package manager for Rust.
@@ -144,6 +147,7 @@ base64.workspace = true
 bytesize.workspace = true
 cargo-credential.workspace = true
 cargo-platform.workspace = true
+cargo-util-schemas.workspace = true
 cargo-util.workspace = true
 clap = { workspace = true, features = ["wrap_help"] }
 color-print.workspace = true
@@ -183,7 +187,6 @@ rustfix.workspace = true
 semver.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde-untagged.workspace = true
-serde-value.workspace = true
 serde_ignored.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
 sha1.workspace = true
@@ -199,7 +202,6 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 unicase.workspace = true
 unicode-width.workspace = true
-unicode-xid.workspace = true
 url.workspace = true
 walkdir.workspace = true
 
