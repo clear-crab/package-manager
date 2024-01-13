@@ -42,6 +42,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4b46cbb362ab8752921c97e041f5e366ee6297bd428a31275b9fcf1e380f7299"
 
 [[package]]
+name = "annotate-snippets"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0a433302f833baa830c0092100c481c7ea768c5981a3c36f549517a502f246dd"
+dependencies = [
+ "anstyle",
+ "unicode-width",
+]
+
+[[package]]
 name = "anstream"
 version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -244,6 +254,7 @@ dependencies = [
 name = "cargo"
 version = "0.78.0"
 dependencies = [
+ "annotate-snippets",
  "anstream",
  "anstyle",
  "anyhow",
@@ -253,7 +264,7 @@ dependencies = [
  "cargo-credential-libsecret",
  "cargo-credential-macos-keychain",
  "cargo-credential-wincred",
- "cargo-platform 0.1.7",
+ "cargo-platform 0.1.8",
  "cargo-test-macro",
  "cargo-test-support",
  "cargo-util",
@@ -319,7 +330,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-credential"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "anyhow",
  "libc",
@@ -333,7 +344,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-credential-1password"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "cargo-credential",
  "serde",
@@ -376,7 +387,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-platform"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "serde",
 ]
@@ -414,7 +425,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-util"
-version = "0.2.9"
+version = "0.2.10"
 dependencies = [
  "anyhow",
  "core-foundation",
@@ -613,7 +624,7 @@ dependencies = [
 
 [[package]]
 name = "crates-io"
-version = "0.39.2"
+version = "0.40.0"
 dependencies = [
  "curl",
  "percent-encoding",
@@ -1891,7 +1902,7 @@ dependencies = [
 
 [[package]]
 name = "home"
-version = "0.5.10"
+version = "0.5.11"
 dependencies = [
  "windows-sys 0.52.0",
 ]
@@ -2842,7 +2853,7 @@ checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
 
 [[package]]
 name = "rustfix"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "anyhow",
  "proptest",

@@ -93,7 +93,7 @@ use crate::core::{Feature, PackageId, Target, Verbosity};
 use crate::util::errors::{CargoResult, VerboseError};
 use crate::util::interning::InternedString;
 use crate::util::machine_message::{self, Message};
-use crate::util::{add_path_args, internal, iter_join_onto, profile};
+use crate::util::{add_path_args, internal, profile};
 use cargo_util::{paths, ProcessBuilder, ProcessError};
 use cargo_util_schemas::manifest::TomlDebugInfo;
 use cargo_util_schemas::manifest::TomlTrimPaths;
@@ -762,6 +762,8 @@ fn prepare_rustdoc(cx: &Context<'_, '_>, unit: &Unit) -> CargoResult<ProcessBuil
     build_deps_args(&mut rustdoc, cx, unit)?;
     rustdoc::add_root_urls(cx, unit, &mut rustdoc)?;
 
+    rustdoc::add_output_format(cx, unit, &mut rustdoc)?;
+
     rustdoc.args(bcx.rustdocflags_args(unit));
 
     if !crate_version_flag_already_present(&rustdoc) {
@@ -910,9 +912,12 @@ fn add_cap_lints(bcx: &BuildContext<'_, '_>, unit: &Unit, cmd: &mut ProcessBuild
 /// [`-Zallow-features`]: https://doc.rust-lang.org/nightly/cargo/reference/unstable.html#allow-features
 fn add_allow_features(cx: &Context<'_, '_>, cmd: &mut ProcessBuilder) {
     if let Some(allow) = &cx.bcx.config.cli_unstable().allow_features {
+        use std::fmt::Write;
         let mut arg = String::from("-Zallow-features=");
-        let _ = iter_join_onto(&mut arg, allow, ",");
-        cmd.arg(&arg);
+        for f in allow {
+            let _ = write!(&mut arg, "{f},");
+        }
+        cmd.arg(arg.trim_end_matches(','));
     }
 }
 
