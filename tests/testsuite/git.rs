@@ -757,13 +757,11 @@ fn update_with_shared_deps() {
         .with_status(101)
         .with_stderr(
             "\
+[UPDATING] git repository [..]
 [ERROR] Unable to update [..]
 
 Caused by:
-  precise value for git is not a git revision: 0.1.2
-
-Caused by:
-  unable to parse OID - contains invalid characters; class=Invalid (3)
+  revspec '0.1.2' not found; class=Reference (4); code=NotFound (-3)
 ",
         )
         .run();
@@ -3271,7 +3269,7 @@ fn metadata_master_consistency() {
                 {
                   "name": "bar",
                   "version": "1.0.0",
-                  "id": "bar 1.0.0 (__BAR_SOURCE__#__BAR_HASH__)",
+                  "id": "__BAR_SOURCE__#1.0.0",
                   "license": null,
                   "license_file": null,
                   "description": null,
@@ -3297,7 +3295,7 @@ fn metadata_master_consistency() {
                 {
                   "name": "foo",
                   "version": "0.1.0",
-                  "id": "foo 0.1.0 [..]",
+                  "id": "[..]foo#0.1.0",
                   "license": null,
                   "license_file": null,
                   "description": null,
@@ -3335,28 +3333,28 @@ fn metadata_master_consistency() {
                 }
               ],
               "workspace_members": [
-                "foo 0.1.0 [..]"
+                "[..]foo#0.1.0"
               ],
               "workspace_default_members": [
-                "foo 0.1.0 [..]"
+                "[..]foo#0.1.0"
               ],
               "resolve": {
                 "nodes": [
                   {
-                    "id": "bar 1.0.0 (__BAR_SOURCE__#__BAR_HASH__)",
+                    "id": "__BAR_SOURCE__#1.0.0",
                     "dependencies": [],
                     "deps": [],
                     "features": []
                   },
                   {
-                    "id": "foo 0.1.0 [..]",
+                    "id": "[..]foo#0.1.0",
                     "dependencies": [
-                      "bar 1.0.0 (__BAR_SOURCE__#__BAR_HASH__)"
+                      "__BAR_SOURCE__#1.0.0"
                     ],
                     "deps": [
                       {
                         "name": "bar",
-                        "pkg": "bar 1.0.0 (__BAR_SOURCE__#__BAR_HASH__)",
+                        "pkg": "__BAR_SOURCE__#1.0.0",
                         "dep_kinds": [
                           {
                             "kind": null,
@@ -3368,7 +3366,7 @@ fn metadata_master_consistency() {
                     "features": []
                   }
                 ],
-                "root": "foo 0.1.0 [..]"
+                "root": "[..]foo#0.1.0"
               },
               "target_directory": "[..]",
               "version": 1,

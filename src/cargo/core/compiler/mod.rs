@@ -88,7 +88,7 @@ use self::unit_graph::UnitDep;
 use crate::core::compiler::future_incompat::FutureIncompatReport;
 pub use crate::core::compiler::unit::{Unit, UnitInterner};
 use crate::core::manifest::TargetSourcePath;
-use crate::core::profiles::{PanicStrategy, Profile, Strip};
+use crate::core::profiles::{PanicStrategy, Profile, StripInner};
 use crate::core::{Feature, PackageId, Target, Verbosity};
 use crate::util::errors::{CargoResult, VerboseError};
 use crate::util::interning::InternedString;
@@ -578,7 +578,7 @@ fn link_targets(cx: &mut Context<'_, '_>, unit: &Unit, fresh: bool) -> CargoResu
             };
 
             let msg = machine_message::Artifact {
-                package_id,
+                package_id: package_id.to_spec(),
                 manifest_path,
                 target: &target,
                 profile: art_profile,
@@ -1135,7 +1135,8 @@ fn build_base_args(cx: &Context<'_, '_>, cmd: &mut ProcessBuilder, unit: &Unit) 
         opt(cmd, "-C", "incremental=", Some(dir));
     }
 
-    if strip != Strip::None {
+    let strip = strip.into_inner();
+    if strip != StripInner::None {
         cmd.arg("-C").arg(format!("strip={}", strip));
     }
 
@@ -1222,18 +1223,22 @@ fn trim_paths_args(
     let package_remap = {
         let pkg_root = unit.pkg.root();
         let ws_root = cx.bcx.ws.root();
-        let is_local = unit.pkg.package_id().source_id().is_path();
         let mut remap = OsString::from("--remap-path-prefix=");
-        // Remapped to path relative to workspace root:
+        // Remap rules for dependencies
         //
-        // * path dependencies under workspace root directory
-        //
-        // Remapped to `<pkg>-<version>`
-        //
-        // * registry dependencies
-        // * git dependencies
-        // * path dependencies outside workspace root directory
-        if is_local && pkg_root.strip_prefix(ws_root).is_ok() {
+        // * Git dependencies: remove ~/.cargo/git/checkouts prefix.
+        // * Registry dependencies: remove ~/.cargo/registry/src prefix.
+        // * Others (e.g. path dependencies):
+        //     * relative paths to workspace root if inside the workspace directory.
+        //     * otherwise remapped to `<pkg>-<version>`.
+        let source_id = unit.pkg.package_id().source_id();
+        if source_id.is_git() {
+            remap.push(cx.bcx.config.git_checkouts_path().as_path_unlocked());
+            remap.push("=");
+        } else if source_id.is_registry() {
+            remap.push(cx.bcx.config.registry_source_path().as_path_unlocked());
+            remap.push("=");
+        } else if pkg_root.strip_prefix(ws_root).is_ok() {
             remap.push(ws_root);
             remap.push("=."); // remap to relative rustc work dir explicitly
         } else {
@@ -1269,34 +1274,27 @@ fn check_cfg_args(cx: &Context<'_, '_>, unit: &Unit) -> Vec<OsString> {
         //
         // but having `cfg()` is redundant with the second argument (as well-known names
         // and values are implicitly enabled when one or more `--check-cfg` argument is
-        // passed) so we don't emit it:
+        // passed) so we don't emit it and just pass:
         //
         //   --check-cfg=cfg(feature, values(...))
         //
-        // expect when there are no features declared, where we can't generate the
-        // `cfg(feature, values())` argument since it would mean that it is somehow
-        // possible to have a `#[cfg(feature)]` without a feature name, which is
-        // impossible and not what we want, so we just generate:
-        //
-        //   --check-cfg=cfg()
+        // This way, even if there are no declared features, the config `feature` will
+        // still be expected, meaning users would get "unexpected value" instead of name.
+        // This wasn't always the case, see rust-lang#119930 for some details.
 
         let gross_cap_estimation = unit.pkg.summary().features().len() * 7 + 25;
         let mut arg_feature = OsString::with_capacity(gross_cap_estimation);
 
-        arg_feature.push("cfg(");
-        if !unit.pkg.summary().features().is_empty() {
-            arg_feature.push("feature, values(");
-            for (i, feature) in unit.pkg.summary().features().keys().enumerate() {
-                if i != 0 {
-                    arg_feature.push(", ");
-                }
-                arg_feature.push("\"");
-                arg_feature.push(feature);
-                arg_feature.push("\"");
+        arg_feature.push("cfg(feature, values(");
+        for (i, feature) in unit.pkg.summary().features().keys().enumerate() {
+            if i != 0 {
+                arg_feature.push(", ");
             }
-            arg_feature.push(")");
+            arg_feature.push("\"");
+            arg_feature.push(feature);
+            arg_feature.push("\"");
         }
-        arg_feature.push(")");
+        arg_feature.push("))");
 
         vec![
             OsString::from("-Zunstable-options"),
@@ -1765,7 +1763,7 @@ fn on_stderr_line_inner(
     }
 
     let msg = machine_message::FromCompiler {
-        package_id,
+        package_id: package_id.to_spec(),
         manifest_path,
         target,
         message: compiler_message,
