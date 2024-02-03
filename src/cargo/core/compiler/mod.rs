@@ -183,7 +183,7 @@ fn compile<'cfg>(
         // We run these targets later, so this is just a no-op for now.
         Job::new_fresh()
     } else if build_plan {
-        Job::new_dirty(rustc(cx, unit, &exec.clone())?, None)
+        Job::new_dirty(rustc(cx, unit, &exec.clone())?, DirtyReason::FreshBuild)
     } else {
         let force = exec.force_rebuild(unit) || force_rebuild;
         let mut job = fingerprint::prepare_target(cx, unit, force)?;
@@ -376,19 +376,6 @@ fn rustc(cx: &mut Context<'_, '_>, unit: &Unit, exec: &Arc<dyn Executor>) -> Car
             }
         }
 
-        fn verbose_if_simple_exit_code(err: Error) -> Error {
-            // If a signal on unix (`code == None`) or an abnormal termination
-            // on Windows (codes like `0xC0000409`), don't hide the error details.
-            match err
-                .downcast_ref::<ProcessError>()
-                .as_ref()
-                .and_then(|perr| perr.code)
-            {
-                Some(n) if cargo_util::is_simple_exit_code(n) => VerboseError::new(err).into(),
-                _ => err,
-            }
-        }
-
         state.running(&rustc);
         let timestamp = paths::set_invocation_time(&fingerprint_dir)?;
         if build_plan {
@@ -507,6 +494,19 @@ fn rustc(cx: &mut Context<'_, '_>, unit: &Unit, exec: &Arc<dyn Executor>) -> Car
             }
         }
         Ok(())
+    }
+}
+
+fn verbose_if_simple_exit_code(err: Error) -> Error {
+    // If a signal on unix (`code == None`) or an abnormal termination
+    // on Windows (codes like `0xC0000409`), don't hide the error details.
+    match err
+        .downcast_ref::<ProcessError>()
+        .as_ref()
+        .and_then(|perr| perr.code)
+    {
+        Some(n) if cargo_util::is_simple_exit_code(n) => VerboseError::new(err).into(),
+        _ => err,
     }
 }
 
@@ -862,6 +862,7 @@ fn rustdoc(cx: &mut Context<'_, '_>, unit: &Unit) -> CargoResult<Work> {
                 },
                 false,
             )
+            .map_err(verbose_if_simple_exit_code)
             .with_context(|| format!("could not document `{}`", name));
 
         if let Err(e) = result {
@@ -1296,8 +1297,15 @@ fn check_cfg_args(cx: &Context<'_, '_>, unit: &Unit) -> Vec<OsString> {
         }
         arg_feature.push("))");
 
+        // We also include the `docsrs` cfg from the docs.rs service. We include it here
+        // (in Cargo) instead of rustc, since there is a much closer relationship between
+        // Cargo and docs.rs than rustc and docs.rs. In particular, all users of docs.rs use
+        // Cargo, but not all users of rustc (like Rust-for-Linux) use docs.rs.
+
         vec![
             OsString::from("-Zunstable-options"),
+            OsString::from("--check-cfg"),
+            OsString::from("cfg(docsrs)"),
             OsString::from("--check-cfg"),
             arg_feature,
         ]

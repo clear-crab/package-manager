@@ -439,6 +439,11 @@ fn calculate_new_project_kind(
 
 pub fn new(opts: &NewOptions, config: &Config) -> CargoResult<()> {
     let path = &opts.path;
+    let name = get_name(path, opts)?;
+    config
+        .shell()
+        .status("Creating", format!("{} `{}` package", opts.kind, name))?;
+
     if path.exists() {
         anyhow::bail!(
             "destination `{}` already exists\n\n\
@@ -446,12 +451,10 @@ pub fn new(opts: &NewOptions, config: &Config) -> CargoResult<()> {
             path.display()
         )
     }
-
     check_path(path, &mut config.shell())?;
 
     let is_bin = opts.kind.is_bin();
 
-    let name = get_name(path, opts)?;
     check_name(name, opts.name.is_none(), is_bin, &mut config.shell())?;
 
     let mkopts = MkOptions {
@@ -480,20 +483,19 @@ pub fn init(opts: &NewOptions, config: &Config) -> CargoResult<NewProjectKind> {
     }
 
     let path = &opts.path;
+    let name = get_name(path, opts)?;
+    let mut src_paths_types = vec![];
+    detect_source_paths_and_types(path, name, &mut src_paths_types)?;
+    let kind = calculate_new_project_kind(opts.kind, opts.auto_detect_kind, &src_paths_types);
+    config
+        .shell()
+        .status("Creating", format!("{} package", opts.kind))?;
 
     if path.join("Cargo.toml").exists() {
         anyhow::bail!("`cargo init` cannot be run on existing Cargo packages")
     }
-
     check_path(path, &mut config.shell())?;
 
-    let name = get_name(path, opts)?;
-
-    let mut src_paths_types = vec![];
-
-    detect_source_paths_and_types(path, name, &mut src_paths_types)?;
-
-    let kind = calculate_new_project_kind(opts.kind, opts.auto_detect_kind, &src_paths_types);
     let has_bin = kind.is_bin();
 
     if src_paths_types.is_empty() {
@@ -782,8 +784,7 @@ fn mk(config: &Config, opts: &MkOptions<'_>) -> CargoResult<()> {
         array.push(registry);
         manifest["package"]["publish"] = toml_edit::value(array);
     }
-    let mut dep_table = toml_edit::Table::default();
-    dep_table.decor_mut().set_prefix("\n# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html\n\n");
+    let dep_table = toml_edit::Table::default();
     manifest["dependencies"] = toml_edit::Item::Table(dep_table);
 
     // Calculate what `[lib]` and `[[bin]]`s we need to append to `Cargo.toml`.
@@ -908,6 +909,10 @@ mod tests {
             &mut config.shell(),
         );
     }
+
+    config.shell().note(
+        "see more `Cargo.toml` keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html",
+    )?;
 
     Ok(())
 }

@@ -4489,6 +4489,37 @@ fn panic_abort_tests() {
         .run();
 }
 
+#[cargo_test] // Unlike with rustc, `rustdoc --test -Cpanic=abort` already works on stable
+fn panic_abort_doc_tests() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = 'foo'
+                version = '0.1.0'
+
+                [profile.dev]
+                panic = 'abort'
+            "#,
+        )
+        .file(
+            "src/lib.rs",
+            r#"
+                //! ```should_panic
+                //! panic!();
+                //! ```
+            "#,
+        )
+        .build();
+
+    p.cargo("test --doc -Z panic-abort-tests -v")
+        .with_stderr_contains("[..]rustc[..]--crate-name foo [..]-C panic=abort[..]")
+        .with_stderr_contains("[..]rustdoc[..]--crate-name foo [..]--test[..]-C panic=abort[..]")
+        .masquerade_as_nightly_cargo(&["panic-abort-tests"])
+        .run();
+}
+
 #[cargo_test(nightly, reason = "-Zpanic-abort-tests in rustc is unstable")]
 fn panic_abort_only_test() {
     let p = project()
@@ -4869,6 +4900,7 @@ error: 2 targets failed:
         .run();
 
     p.cargo("test --no-fail-fast -- --nocapture")
+    .env_remove("RUST_BACKTRACE")
     .with_stderr_does_not_contain("test exited abnormally; to see the full output pass --nocapture to the harness.")
     .with_stderr_contains("[..]thread 't' panicked [..] tests/t1[..]")
     .with_stderr_contains("note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace")
