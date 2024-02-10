@@ -46,7 +46,7 @@ fn override_simple() {
 [UPDATING] git repository `[..]`
 [CHECKING] bar v0.1.0 (file://[..])
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -95,7 +95,7 @@ fn override_with_features() {
 will not take effect because the replacement dependency does not support this mechanism
 [CHECKING] bar v0.1.0 (file://[..])
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -144,7 +144,7 @@ fn override_with_setting_default_features() {
 will not take effect because the replacement dependency does not support this mechanism
 [CHECKING] bar v0.1.0 (file://[..])
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -300,7 +300,7 @@ fn transitive() {
 [CHECKING] bar v0.1.0 (file://[..])
 [CHECKING] baz v0.2.0
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -349,7 +349,7 @@ fn persists_across_rebuilds() {
 [UPDATING] git repository `file://[..]`
 [CHECKING] bar v0.1.0 (file://[..])
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -395,7 +395,7 @@ fn replace_registry_with_path() {
 [UPDATING] `dummy-registry` index
 [CHECKING] bar v0.1.0 ([ROOT][..]/bar)
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -466,7 +466,7 @@ fn use_a_spec_to_select() {
 [CHECKING] [..]
 [CHECKING] [..]
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -525,7 +525,7 @@ fn override_adds_some_deps() {
 [CHECKING] baz v0.1.1
 [CHECKING] bar v0.1.0 ([..])
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();
@@ -539,6 +539,7 @@ fn override_adds_some_deps() {
             "\
 [UPDATING] git repository `file://[..]`
 [UPDATING] `dummy-registry` index
+[NOTE] pass `--verbose` to see 1 unchanged dependencies behind latest
 ",
         )
         .run();
@@ -546,6 +547,7 @@ fn override_adds_some_deps() {
         .with_stderr(
             "\
 [UPDATING] `dummy-registry` index
+[NOTE] pass `--verbose` to see 1 unchanged dependencies behind latest
 ",
         )
         .run();
@@ -1447,7 +1449,7 @@ fn override_spec_metadata_is_optional() {
 [UPDATING] git repository `[..]`
 [CHECKING] bar v0.1.0+a (file://[..])
 [CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
         )
         .run();

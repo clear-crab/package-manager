@@ -844,11 +844,24 @@ fn mk(config: &Config, opts: &MkOptions<'_>) -> CargoResult<()> {
                 }
 
                 // Try to add the new package to the workspace members.
-                update_manifest_with_new_member(
+                if update_manifest_with_new_member(
                     &root_manifest_path,
                     &mut workspace_document,
                     &display_path,
-                )?;
+                )? {
+                    config.shell().status(
+                        "Adding",
+                        format!(
+                            "`{}` as member of workspace at `{}`",
+                            PathBuf::from(&display_path)
+                                .file_name()
+                                .unwrap()
+                                .to_str()
+                                .unwrap(),
+                            root_manifest_path.parent().unwrap().display()
+                        ),
+                    )?
+                }
             }
         }
     }
@@ -965,44 +978,46 @@ fn update_manifest_with_new_member(
     root_manifest_path: &Path,
     workspace_document: &mut toml_edit::Document,
     display_path: &str,
-) -> CargoResult<()> {
+) -> CargoResult<bool> {
     // If the members element already exist, check if one of the patterns
     // in the array already includes the new package's relative path.
     // - Add the relative path if the members don't match the new package's path.
     // - Create a new members array if there are no members element in the workspace yet.
-    if let Some(members) = workspace_document
-        .get_mut("workspace")
-        .and_then(|workspace| workspace.get_mut("members"))
-        .and_then(|members| members.as_array_mut())
-    {
-        for member in members.iter() {
-            let pat = member
-                .as_str()
-                .with_context(|| format!("invalid non-string member `{}`", member))?;
-            let pattern = glob::Pattern::new(pat)
-                .with_context(|| format!("cannot build glob pattern from `{}`", pat))?;
+    if let Some(workspace) = workspace_document.get_mut("workspace") {
+        if let Some(members) = workspace
+            .get_mut("members")
+            .and_then(|members| members.as_array_mut())
+        {
+            for member in members.iter() {
+                let pat = member
+                    .as_str()
+                    .with_context(|| format!("invalid non-string member `{}`", member))?;
+                let pattern = glob::Pattern::new(pat)
+                    .with_context(|| format!("cannot build glob pattern from `{}`", pat))?;
 
-            if pattern.matches(&display_path) {
-                return Ok(());
+                if pattern.matches(&display_path) {
+                    return Ok(false);
+                }
             }
-        }
 
-        let was_sorted = is_sorted(members.iter().map(Value::as_str));
-        members.push(display_path);
-        if was_sorted {
-            members.sort_by(|lhs, rhs| lhs.as_str().cmp(&rhs.as_str()));
-        }
-    } else {
-        let mut array = Array::new();
-        array.push(display_path);
+            let was_sorted = is_sorted(members.iter().map(Value::as_str));
+            members.push(display_path);
+            if was_sorted {
+                members.sort_by(|lhs, rhs| lhs.as_str().cmp(&rhs.as_str()));
+            }
+        } else {
+            let mut array = Array::new();
+            array.push(display_path);
 
-        workspace_document["workspace"]["members"] = toml_edit::value(array);
+            workspace["members"] = toml_edit::value(array);
+        }
     }
 
     write_atomic(
         &root_manifest_path,
         workspace_document.to_string().to_string().as_bytes(),
-    )
+    )?;
+    Ok(true)
 }
 
 fn get_display_path(root_manifest_path: &Path, package_path: &Path) -> CargoResult<String> {
