@@ -1,9 +1,9 @@
 #![allow(clippy::self_named_module_files)] // false positive in `commands/build.rs`
 
+use cargo::core::shell::Shell;
 use cargo::util::network::http::http_handle;
 use cargo::util::network::http::needs_custom_http_transport;
-use cargo::util::CliError;
-use cargo::util::{self, closest_msg, command_prelude, CargoResult, CliResult, Config};
+use cargo::util::{self, closest_msg, command_prelude, CargoResult};
 use cargo_util::{ProcessBuilder, ProcessError};
 use cargo_util_schemas::manifest::StringOrVec;
 use std::collections::BTreeMap;
@@ -20,17 +20,23 @@ use crate::command_prelude::*;
 fn main() {
     setup_logger();
 
-    let mut config = cli::LazyConfig::new();
+    let mut gctx = match GlobalContext::default() {
+        Ok(gctx) => gctx,
+        Err(e) => {
+            let mut shell = Shell::new();
+            cargo::exit_with_error(e.into(), &mut shell)
+        }
+    };
 
     let result = if let Some(lock_addr) = cargo::ops::fix_get_proxy_lock_addr() {
-        cargo::ops::fix_exec_rustc(config.get(), &lock_addr).map_err(|e| CliError::from(e))
+        cargo::ops::fix_exec_rustc(&gctx, &lock_addr).map_err(|e| CliError::from(e))
     } else {
         let _token = cargo::util::job::setup();
-        cli::main(&mut config)
+        cli::main(&mut gctx)
     };
 
     match result {
-        Err(e) => cargo::exit_with_error(e, &mut config.get_mut().shell()),
+        Err(e) => cargo::exit_with_error(e, &mut *gctx.shell()),
         Ok(()) => {}
     }
 }
@@ -64,7 +70,7 @@ fn builtin_aliases_execs(cmd: &str) -> Option<&(&str, &str, &str)> {
     BUILTIN_ALIASES.iter().find(|alias| alias.0 == cmd)
 }
 
-/// Resolve the aliased command from the [`Config`] with a given command string.
+/// Resolve the aliased command from the [`GlobalContext`] with a given command string.
 ///
 /// The search fallback chain is:
 ///
@@ -72,9 +78,9 @@ fn builtin_aliases_execs(cmd: &str) -> Option<&(&str, &str, &str)> {
 /// 2. If an `Err` occurs (missing key, type mismatch, or any possible error),
 ///    try to get it as an array again.
 /// 3. If still cannot find any, finds one insides [`BUILTIN_ALIASES`].
-fn aliased_command(config: &Config, command: &str) -> CargoResult<Option<Vec<String>>> {
+fn aliased_command(gctx: &GlobalContext, command: &str) -> CargoResult<Option<Vec<String>>> {
     let alias_name = format!("alias.{}", command);
-    let user_alias = match config.get_string(&alias_name) {
+    let user_alias = match gctx.get_string(&alias_name) {
         Ok(Some(record)) => Some(
             record
                 .val
@@ -83,7 +89,7 @@ fn aliased_command(config: &Config, command: &str) -> CargoResult<Option<Vec<Str
                 .collect(),
         ),
         Ok(None) => None,
-        Err(_) => config.get::<Option<Vec<String>>>(&alias_name)?,
+        Err(_) => gctx.get::<Option<Vec<String>>>(&alias_name)?,
     };
 
     let result = user_alias.or_else(|| {
@@ -93,11 +99,11 @@ fn aliased_command(config: &Config, command: &str) -> CargoResult<Option<Vec<Str
 }
 
 /// List all runnable commands
-fn list_commands(config: &Config) -> BTreeMap<String, CommandInfo> {
+fn list_commands(gctx: &GlobalContext) -> BTreeMap<String, CommandInfo> {
     let prefix = "cargo-";
     let suffix = env::consts::EXE_SUFFIX;
     let mut commands = BTreeMap::new();
-    for dir in search_directories(config) {
+    for dir in search_directories(gctx) {
         let entries = match fs::read_dir(dir) {
             Ok(entries) => entries,
             _ => continue,
@@ -143,7 +149,7 @@ fn list_commands(config: &Config) -> BTreeMap<String, CommandInfo> {
     }
 
     // Add the user-defined aliases
-    if let Ok(aliases) = config.get::<BTreeMap<String, StringOrVec>>("alias") {
+    if let Ok(aliases) = gctx.get::<BTreeMap<String, StringOrVec>>("alias") {
         for (name, target) in aliases.iter() {
             commands.insert(
                 name.to_string(),
@@ -165,20 +171,20 @@ fn list_commands(config: &Config) -> BTreeMap<String, CommandInfo> {
     commands
 }
 
-fn find_external_subcommand(config: &Config, cmd: &str) -> Option<PathBuf> {
+fn find_external_subcommand(gctx: &GlobalContext, cmd: &str) -> Option<PathBuf> {
     let command_exe = format!("cargo-{}{}", cmd, env::consts::EXE_SUFFIX);
-    search_directories(config)
+    search_directories(gctx)
         .iter()
         .map(|dir| dir.join(&command_exe))
         .find(|file| is_executable(file))
 }
 
-fn execute_external_subcommand(config: &Config, cmd: &str, args: &[&OsStr]) -> CliResult {
-    let path = find_external_subcommand(config, cmd);
+fn execute_external_subcommand(gctx: &GlobalContext, cmd: &str, args: &[&OsStr]) -> CliResult {
+    let path = find_external_subcommand(gctx, cmd);
     let command = match path {
         Some(command) => command,
         None => {
-            let script_suggestion = if config.cli_unstable().script
+            let script_suggestion = if gctx.cli_unstable().script
                 && std::path::Path::new(cmd).is_file()
             {
                 let sep = std::path::MAIN_SEPARATOR;
@@ -193,7 +199,7 @@ fn execute_external_subcommand(config: &Config, cmd: &str, args: &[&OsStr]) -> C
                     Did you mean to invoke `cargo` through `rustup` instead?{script_suggestion}",
                 )
             } else {
-                let suggestions = list_commands(config);
+                let suggestions = list_commands(gctx);
                 let did_you_mean = closest_msg(cmd, suggestions.keys(), |c| c);
 
                 anyhow::format_err!(
@@ -206,24 +212,28 @@ fn execute_external_subcommand(config: &Config, cmd: &str, args: &[&OsStr]) -> C
             return Err(CliError::new(err, 101));
         }
     };
-    execute_subcommand(config, Some(&command), args)
+    execute_subcommand(gctx, Some(&command), args)
 }
 
-fn execute_internal_subcommand(config: &Config, args: &[&OsStr]) -> CliResult {
-    execute_subcommand(config, None, args)
+fn execute_internal_subcommand(gctx: &GlobalContext, args: &[&OsStr]) -> CliResult {
+    execute_subcommand(gctx, None, args)
 }
 
 // This function is used to execute a subcommand. It is used to execute both
 // internal and external subcommands.
 // If `cmd_path` is `None`, then the subcommand is an internal subcommand.
-fn execute_subcommand(config: &Config, cmd_path: Option<&PathBuf>, args: &[&OsStr]) -> CliResult {
-    let cargo_exe = config.cargo_exe()?;
+fn execute_subcommand(
+    gctx: &GlobalContext,
+    cmd_path: Option<&PathBuf>,
+    args: &[&OsStr],
+) -> CliResult {
+    let cargo_exe = gctx.cargo_exe()?;
     let mut cmd = match cmd_path {
         Some(cmd_path) => ProcessBuilder::new(cmd_path),
         None => ProcessBuilder::new(&cargo_exe),
     };
     cmd.env(cargo::CARGO_ENV, cargo_exe).args(args);
-    if let Some(client) = config.jobserver_from_env() {
+    if let Some(client) = gctx.jobserver_from_env() {
         cmd.inherit_jobserver(client);
     }
     let err = match cmd.exec_replace() {
@@ -251,14 +261,14 @@ fn is_executable<P: AsRef<Path>>(path: P) -> bool {
     path.as_ref().is_file()
 }
 
-fn search_directories(config: &Config) -> Vec<PathBuf> {
-    let mut path_dirs = if let Some(val) = config.get_env_os("PATH") {
+fn search_directories(gctx: &GlobalContext) -> Vec<PathBuf> {
+    let mut path_dirs = if let Some(val) = gctx.get_env_os("PATH") {
         env::split_paths(&val).collect()
     } else {
         vec![]
     };
 
-    let home_bin = config.home().clone().into_path_unlocked().join("bin");
+    let home_bin = gctx.home().clone().into_path_unlocked().join("bin");
 
     // If any of that PATH elements contains `home_bin`, do not
     // add it again. This is so that the users can control priority
@@ -277,7 +287,7 @@ fn search_directories(config: &Config) -> Vec<PathBuf> {
 }
 
 /// Initialize libgit2.
-fn init_git(config: &Config) {
+fn init_git(gctx: &GlobalContext) {
     // Disabling the owner validation in git can, in theory, lead to code execution
     // vulnerabilities. However, libgit2 does not launch executables, which is the foundation of
     // the original security issue. Meanwhile, issues with refusing to load git repos in
@@ -300,7 +310,7 @@ fn init_git(config: &Config) {
             .expect("set_verify_owner_validation should never fail");
     }
 
-    init_git_transports(config);
+    init_git_transports(gctx);
 }
 
 /// Configure libgit2 to use libcurl if necessary.
@@ -308,13 +318,13 @@ fn init_git(config: &Config) {
 /// If the user has a non-default network configuration, then libgit2 will be
 /// configured to use libcurl instead of the built-in networking support so
 /// that those configuration settings can be used.
-fn init_git_transports(config: &Config) {
-    match needs_custom_http_transport(config) {
+fn init_git_transports(gctx: &GlobalContext) {
+    match needs_custom_http_transport(gctx) {
         Ok(true) => {}
         _ => return,
     }
 
-    let handle = match http_handle(config) {
+    let handle = match http_handle(gctx) {
         Ok(handle) => handle,
         Err(..) => return,
     };

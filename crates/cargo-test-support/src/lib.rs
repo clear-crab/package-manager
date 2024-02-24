@@ -13,14 +13,12 @@ use std::fs;
 use std::os;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::str;
 use std::sync::OnceLock;
 use std::thread::JoinHandle;
 use std::time::{self, Duration};
 
 use anyhow::{bail, Result};
 use cargo_util::{is_ci, ProcessBuilder, ProcessError};
-use serde_json;
 use url::Url;
 
 use self::paths::CargoPathExt;
@@ -37,6 +35,7 @@ macro_rules! t {
 
 pub use snapbox::file;
 pub use snapbox::path::current_dir;
+pub use snapbox::str;
 
 #[track_caller]
 pub fn panic_error(what: &str, err: impl Into<anyhow::Error>) -> ! {
@@ -765,6 +764,13 @@ impl Execs {
         self
     }
 
+    pub fn args<T: AsRef<OsStr>>(&mut self, args: &[T]) -> &mut Self {
+        if let Some(ref mut p) = self.process_builder {
+            p.args(args);
+        }
+        self
+    }
+
     pub fn cwd<T: AsRef<OsStr>>(&mut self, path: T) -> &mut Self {
         if let Some(ref mut p) = self.process_builder {
             if let Some(cwd) = p.get_cwd() {
@@ -973,8 +979,8 @@ impl Execs {
 
     fn match_output(&self, code: Option<i32>, stdout: &[u8], stderr: &[u8]) -> Result<()> {
         self.verify_checks_output(stdout, stderr);
-        let stdout = str::from_utf8(stdout).expect("stdout is not utf8");
-        let stderr = str::from_utf8(stderr).expect("stderr is not utf8");
+        let stdout = std::str::from_utf8(stdout).expect("stdout is not utf8");
+        let stderr = std::str::from_utf8(stderr).expect("stderr is not utf8");
         let cwd = self.get_cwd();
 
         match self.expect_exit_code {
@@ -1212,7 +1218,7 @@ pub trait TestEnv: Sized {
                     .exec_with_output()
                 {
                     Ok(output) => {
-                        let s = str::from_utf8(&output.stdout).expect("utf8").trim();
+                        let s = std::str::from_utf8(&output.stdout).expect("utf8").trim();
                         let mut p = PathBuf::from(s);
                         p.pop();
                         p
@@ -1320,6 +1326,7 @@ impl CargoCommand for snapbox::cmd::Command {
     fn cargo_ui() -> Self {
         Self::new(cargo_exe())
             .with_assert(compare::assert_ui())
+            .env("CARGO_TERM_COLOR", "always")
             .test_env()
     }
 }

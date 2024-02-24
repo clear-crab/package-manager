@@ -3,6 +3,7 @@ use cargo_test_support::current_dir;
 use cargo_test_support::file;
 use cargo_test_support::paths;
 use cargo_test_support::prelude::*;
+use cargo_test_support::str;
 use std::fs;
 
 #[cargo_test]
@@ -16,8 +17,8 @@ fn case() {
         .current_dir(project_root)
         .assert()
         .success()
-        .stdout_matches(file!["stdout.log"])
-        .stderr_matches(file!["stderr.log"]);
+        .stdout_matches(str![""])
+        .stderr_matches(file!["stderr.term.svg"]);
 
     assert_ui().subset_matches(current_dir!().join("out"), project_root);
     assert!(project_root.join(".git").is_dir());

@@ -1,6 +1,7 @@
 use cargo_test_support::file;
 use cargo_test_support::paths;
 use cargo_test_support::prelude::*;
+use cargo_test_support::str;
 use std::fs;
 
 #[cargo_test]
@@ -13,8 +14,8 @@ fn case() {
         .current_dir(foo)
         .assert()
         .code(101)
-        .stdout_matches(file!["stdout.log"])
-        .stderr_matches(file!["stderr.log"]);
+        .stdout_matches(str![""])
+        .stderr_matches(file!["stderr.term.svg"]);
 
     assert!(!foo.join("Cargo.toml").is_file());
 }
