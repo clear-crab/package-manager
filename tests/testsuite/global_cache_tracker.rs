@@ -35,6 +35,7 @@ fn basic_foo_bar_project() -> Project {
                 [package]
                 name = "foo"
                 version = "0.1.0"
+                edition = "2015"
 
                 [dependencies]
                 bar = "1.0"
@@ -164,23 +165,20 @@ fn rustup_cargo() -> Execs {
 
 #[cargo_test]
 fn auto_gc_gated() {
-    // Requires -Zgc to both track last-use data and to run auto-gc.
+    // Requires -Zgc to run auto-gc.
     let p = basic_foo_bar_project();
     p.cargo("check")
         .env("__CARGO_TEST_LAST_USE_NOW", months_ago_unix(4))
         .run();
-    // Check that it did not create a database or delete anything.
+    // Check that it created a database.
     let gctx = GlobalContextBuilder::new().build();
-    assert!(!GlobalCacheTracker::db_path(&gctx)
+    assert!(GlobalCacheTracker::db_path(&gctx)
         .into_path_unlocked()
         .exists());
     assert_eq!(get_index_names().len(), 1);
 
     // Again in the future, shouldn't auto-gc.
     p.cargo("check").run();
-    assert!(!GlobalCacheTracker::db_path(&gctx)
-        .into_path_unlocked()
-        .exists());
     assert_eq!(get_index_names().len(), 1);
 }
 
@@ -203,7 +201,7 @@ See [..]
 fn implies_source() {
     // Checks that when a src, crate, or checkout is marked as used, the
     // corresponding index or git db also gets marked as used.
-    let gctx = GlobalContextBuilder::new().unstable_flag("gc").build();
+    let gctx = GlobalContextBuilder::new().build();
     let _lock = gctx
         .acquire_package_cache_lock(CacheLockMode::MutateExclusive)
         .unwrap();
@@ -256,6 +254,7 @@ fn auto_gc_defaults() {
                 [package]
                 name = "foo"
                 version = "0.1.0"
+                edition = "2015"
 
                 [dependencies]
                 old = "1.0"
@@ -283,6 +282,7 @@ fn auto_gc_defaults() {
             [package]
             name = "foo"
             version = "0.1.0"
+            edition = "2015"
 
             [dependencies]
             new = "1.0"
@@ -330,6 +330,7 @@ fn auto_gc_config() {
                 [package]
                 name = "foo"
                 version = "0.1.0"
+                edition = "2015"
 
                 [dependencies]
                 old = "1.0"
@@ -357,6 +358,7 @@ fn auto_gc_config() {
             [package]
             name = "foo"
             version = "0.1.0"
+            edition = "2015"
 
             [dependencies]
             new = "1.0"
@@ -437,6 +439,7 @@ fn auto_gc_index() {
             [package]
             name = "foo"
             version = "0.1.0"
+            edition = "2015"
         "#,
     );
     p.cargo("check -Zgc")
@@ -477,6 +480,7 @@ fn auto_gc_git() {
                 [package]
                 name = "foo"
                 version = "0.1.0"
+                edition = "2015"
 
                 [dependencies]
                 bar = {{ git = '{}' }}
@@ -550,6 +554,7 @@ fn auto_gc_various_commands() {
                     [package]
                     name = "foo"
                     version = "0.1.0"
+                    edition = "2015"
 
                     [dependencies]
                     bar = "1.0"
@@ -563,7 +568,7 @@ fn auto_gc_various_commands() {
             .masquerade_as_nightly_cargo(&["gc"])
             .env("__CARGO_TEST_LAST_USE_NOW", months_ago_unix(4))
             .run();
-        let gctx = GlobalContextBuilder::new().unstable_flag("gc").build();
+        let gctx = GlobalContextBuilder::new().build();
         let lock = gctx
             .acquire_package_cache_lock(CacheLockMode::MutateExclusive)
             .unwrap();
@@ -635,6 +640,7 @@ fn updates_last_use_various_commands() {
                     [package]
                     name = "foo"
                     version = "0.1.0"
+                    edition = "2015"
 
                     [dependencies]
                     bar = "1.0"
@@ -647,7 +653,7 @@ fn updates_last_use_various_commands() {
             .arg("-Zgc")
             .masquerade_as_nightly_cargo(&["gc"])
             .run();
-        let gctx = GlobalContextBuilder::new().unstable_flag("gc").build();
+        let gctx = GlobalContextBuilder::new().build();
         let lock = gctx
             .acquire_package_cache_lock(CacheLockMode::MutateExclusive)
             .unwrap();
@@ -683,6 +689,7 @@ fn both_git_and_http_index_cleans() {
                 [package]
                 name = "foo"
                 version = "0.1.0"
+                edition = "2015"
 
                 [dependencies]
                 from_git = "1.0"
@@ -696,7 +703,7 @@ fn both_git_and_http_index_cleans() {
         .masquerade_as_nightly_cargo(&["gc"])
         .env("__CARGO_TEST_LAST_USE_NOW", months_ago_unix(4))
         .run();
-    let gctx = GlobalContextBuilder::new().unstable_flag("gc").build();
+    let gctx = GlobalContextBuilder::new().build();
     let lock = gctx
         .acquire_package_cache_lock(CacheLockMode::MutateExclusive)
         .unwrap();
@@ -808,6 +815,7 @@ fn tracks_sizes() {
                 [package]
                 name = "foo"
                 version = "0.1.0"
+                edition = "2015"
 
                 [dependencies]
                 dep1 = "1.0"
@@ -821,7 +829,7 @@ fn tracks_sizes() {
         .run();
 
     // Check that the crate sizes are the same as on disk.
-    let gctx = GlobalContextBuilder::new().unstable_flag("gc").build();
+    let gctx = GlobalContextBuilder::new().build();
     let _lock = gctx
         .acquire_package_cache_lock(CacheLockMode::MutateExclusive)
         .unwrap();
@@ -863,7 +871,7 @@ fn tracks_sizes() {
 #[cargo_test]
 fn max_size() {
     // Checks --max-crate-size and --max-src-size with various cleaning thresholds.
-    let gctx = GlobalContextBuilder::new().unstable_flag("gc").build();
+    let gctx = GlobalContextBuilder::new().build();
 
     let test_crates = [
         // name, age, crate_size, src_size
@@ -962,7 +970,7 @@ fn max_size_untracked_crate() {
     // When a .crate file exists from an older version of cargo that did not
     // track sizes, `clean --max-crate-size` should populate the db with the
     // sizes.
-    let gctx = GlobalContextBuilder::new().unstable_flag("gc").build();
+    let gctx = GlobalContextBuilder::new().build();
     let cache = paths::home().join(".cargo/registry/cache/example.com-a6c4a5adcb232b9a");
     cache.mkdir_p();
     paths::home()
@@ -1003,7 +1011,7 @@ fn max_size_untracked_prepare() -> (GlobalContext, Project) {
     let p = basic_foo_bar_project();
     p.cargo("fetch").run();
     // Pretend it was an older version that did not track last-use.
-    let gctx = GlobalContextBuilder::new().unstable_flag("gc").build();
+    let gctx = GlobalContextBuilder::new().build();
     GlobalCacheTracker::db_path(&gctx)
         .into_path_unlocked()
         .rm_rf();
@@ -1084,7 +1092,7 @@ fn max_download_size() {
     // This creates some sample crates of specific sizes, and then tries
     // deleting at various specific size thresholds that exercise different
     // edge conditions.
-    let gctx = GlobalContextBuilder::new().unstable_flag("gc").build();
+    let gctx = GlobalContextBuilder::new().build();
 
     let test_crates = [
         // name, age, crate_size, src_size
@@ -1146,6 +1154,7 @@ fn package_cache_lock_during_build() {
                 [package]
                 name = "foo"
                 version = "0.1.0"
+                edition = "2015"
 
                 [dependencies]
                 bar = "1.0"
@@ -1177,6 +1186,7 @@ fn package_cache_lock_during_build() {
                 [package]
                 name = "foo2"
                 version = "0.1.0"
+                edition = "2015"
 
                 [dependencies]
                 bar = "1.0"
@@ -1326,6 +1336,7 @@ fn clean_syncs_missing_files() {
                 [package]
                 name = "foo"
                 version = "0.1.0"
+                edition = "2015"
 
                 [dependencies]
                 bar = "1.0"
@@ -1339,7 +1350,7 @@ fn clean_syncs_missing_files() {
         .run();
 
     // Verify things are tracked.
-    let gctx = GlobalContextBuilder::new().unstable_flag("gc").build();
+    let gctx = GlobalContextBuilder::new().build();
     let lock = gctx
         .acquire_package_cache_lock(CacheLockMode::MutateExclusive)
         .unwrap();
@@ -1444,6 +1455,7 @@ fn clean_max_git_age() {
                 [package]
                 name = "foo"
                 version = "0.1.0"
+                edition = "2015"
 
                 [dependencies]
                 git_a = {{ git = '{}' }}
@@ -1638,6 +1650,7 @@ fn clean_max_git_size() {
                 [package]
                 name = "foo"
                 version = "0.1.0"
+                edition = "2015"
 
                 [dependencies]
                 bar = {{ git = '{}' }}
@@ -1822,6 +1835,7 @@ fn handles_missing_git_db() {
                 [package]
                 name = "foo"
                 version = "0.1.0"
+                edition = "2015"
 
                 [dependencies]
                 bar = {{ git = '{}' }}
@@ -1888,6 +1902,7 @@ fn compatible_with_older_cargo() {
                 [package]
                 name = "foo"
                 version = "0.1.0"
+                edition = "2015"
 
                 [dependencies]
                 old = "1.0"
@@ -1918,6 +1933,7 @@ fn compatible_with_older_cargo() {
             [package]
             name = "foo"
             version = "0.1.0"
+            edition = "2015"
 
             [dependencies]
             new = "1.0"
@@ -1944,6 +1960,7 @@ fn compatible_with_older_cargo() {
             [package]
             name = "foo"
             version = "0.1.0"
+            edition = "2015"
 
             [dependencies]
             new = "1.0"
@@ -1992,7 +2009,7 @@ fn forward_compatible() {
         .masquerade_as_nightly_cargo(&["gc"])
         .run();
 
-    let config = GlobalContextBuilder::new().unstable_flag("gc").build();
+    let config = GlobalContextBuilder::new().build();
     let lock = config
         .acquire_package_cache_lock(CacheLockMode::MutateExclusive)
         .unwrap();

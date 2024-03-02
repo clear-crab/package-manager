@@ -14,7 +14,7 @@ use crate::core::{Feature, Shell, Verbosity, Workspace};
 use crate::core::{Package, PackageId, PackageSet, Resolve, SourceId};
 use crate::sources::PathSource;
 use crate::util::cache_lock::CacheLockMode;
-use crate::util::config::JobsConfig;
+use crate::util::context::JobsConfig;
 use crate::util::errors::CargoResult;
 use crate::util::toml::{prepare_for_publish, to_real_manifest};
 use crate::util::{self, human_readable_bytes, restricted_names, FileLock, GlobalContext};
@@ -911,6 +911,7 @@ fn run_verify(
         .unstable_features()
         .require(Feature::public_dependency())
         .is_ok()
+        || ws.gctx().cli_unstable().public_dependency
     {
         // FIXME: Turn this on at some point in the future
         //Some(vec!["-D exported_private_dependencies".to_string()])

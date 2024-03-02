@@ -7,6 +7,7 @@ use cargo_test_support::{
 };
 use cargo_test_support::{cross_compile, paths};
 use cargo_test_support::{rustc_host, rustc_host_env, sleep_ms};
+use cargo_util::paths::dylib_path_envvar;
 use std::fs;
 
 #[cargo_test]
@@ -58,6 +59,7 @@ fn cargo_test_release() {
                 name = "foo"
                 authors = []
                 version = "0.1.0"
+                edition = "2015"
 
                 [dependencies]
                 bar = { path = "bar" }
@@ -115,6 +117,7 @@ fn cargo_test_overflow_checks() {
             [package]
             name = "foo"
             version = "0.5.0"
+            edition = "2015"
             authors = []
 
             [[bin]]
@@ -153,6 +156,7 @@ fn cargo_test_quiet_with_harness() {
                 [package]
                 name = "foo"
                 version = "0.1.0"
+                edition = "2015"
                 authors = []
 
                 [[test]]
@@ -192,6 +196,7 @@ fn cargo_test_quiet_no_harness() {
                 [package]
                 name = "foo"
                 version = "0.1.0"
+                edition = "2015"
                 authors = []
 
                 [[bin]]
@@ -225,6 +230,7 @@ fn cargo_doc_test_quiet() {
                 [package]
                 name = "foo"
                 version = "0.1.0"
+                edition = "2015"
                 authors = []
             "#,
         )
@@ -497,6 +503,7 @@ fn test_with_lib_dep() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [[bin]]
@@ -557,6 +564,7 @@ fn test_with_deep_lib_dep() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [dependencies.bar]
@@ -609,6 +617,7 @@ fn external_test_explicit() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [[test]]
@@ -660,6 +669,7 @@ fn external_test_named_test() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [[test]]
@@ -892,6 +902,7 @@ fn lib_bin_same_name() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [lib]
@@ -978,6 +989,7 @@ fn lib_with_standard_name2() {
                 [package]
                 name = "syntax"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [lib]
@@ -1020,6 +1032,7 @@ fn lib_without_name() {
                 [package]
                 name = "syntax"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [lib]
@@ -1061,6 +1074,7 @@ fn bin_without_name() {
                 [package]
                 name = "syntax"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [lib]
@@ -1106,6 +1120,7 @@ fn bench_without_name() {
                 [package]
                 name = "syntax"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [lib]
@@ -1162,6 +1177,7 @@ fn test_without_name() {
                 [package]
                 name = "syntax"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [lib]
@@ -1222,6 +1238,7 @@ fn example_without_name() {
                 [package]
                 name = "syntax"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [lib]
@@ -1306,6 +1323,7 @@ fn test_dylib() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [lib]
@@ -1342,6 +1360,7 @@ fn test_dylib() {
                 [package]
                 name = "bar"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [lib]
@@ -1385,6 +1404,7 @@ fn test_twice_with_build_cmd() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
                 build = "build.rs"
             "#,
@@ -1478,6 +1498,7 @@ fn test_run_specific_bin_target() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [[bin]]
@@ -1513,6 +1534,7 @@ fn test_run_implicit_bin_target() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [[bin]]
@@ -1574,6 +1596,7 @@ fn test_run_implicit_test_target() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [[bin]]
@@ -1615,6 +1638,7 @@ fn test_run_implicit_bench_target() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [[bin]]
@@ -1656,6 +1680,7 @@ fn test_run_implicit_example_target() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [[bin]]
@@ -1730,6 +1755,7 @@ fn test_filtered_excludes_compiling_examples() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [[bin]]
@@ -1777,10 +1803,10 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out[..]
         .with_stderr_unordered(
             "\
 [COMPILING] foo v0.0.1 ([CWD])
-[RUNNING] `rustc --crate-name foo src/lib.rs [..] --crate-type lib [..]`
-[RUNNING] `rustc --crate-name foo src/lib.rs [..] --test [..]`
-[RUNNING] `rustc --crate-name mybin src/bin/mybin.rs [..] --crate-type bin [..]`
-[RUNNING] `rustc --crate-name mytest tests/mytest.rs [..] --test [..]`
+[RUNNING] `rustc --crate-name foo --edition=2015 src/lib.rs [..] --crate-type lib [..]`
+[RUNNING] `rustc --crate-name foo --edition=2015 src/lib.rs [..] --test [..]`
+[RUNNING] `rustc --crate-name mybin --edition=2015 src/bin/mybin.rs [..] --crate-type bin [..]`
+[RUNNING] `rustc --crate-name mytest --edition=2015 tests/mytest.rs [..] --test [..]`
 [FINISHED] `test` profile [unoptimized + debuginfo] target(s) in [..]
 [RUNNING] `[CWD]/target/debug/deps/foo-[..] test_in_`
 [RUNNING] `[CWD]/target/debug/deps/mytest-[..] test_in_`
@@ -1800,6 +1826,7 @@ fn test_no_harness() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [[bin]]
@@ -1836,6 +1863,7 @@ fn selective_testing() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [dependencies.d1]
@@ -1855,6 +1883,7 @@ fn selective_testing() {
                 [package]
                 name = "d1"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [lib]
@@ -1873,6 +1902,7 @@ fn selective_testing() {
                 [package]
                 name = "d2"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [lib]
@@ -1932,6 +1962,7 @@ fn almost_cyclic_but_not_quite() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [dev-dependencies.b]
@@ -1953,6 +1984,7 @@ fn almost_cyclic_but_not_quite() {
                 [package]
                 name = "b"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [dependencies.foo]
@@ -1983,6 +2015,7 @@ fn build_then_selective_test() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [dependencies.b]
@@ -2021,6 +2054,7 @@ fn example_dev_dep() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [dev-dependencies.bar]
@@ -2062,6 +2096,7 @@ fn selective_testing_with_docs() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [dependencies.d1]
@@ -2083,6 +2118,7 @@ fn selective_testing_with_docs() {
                 [package]
                 name = "d1"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [lib]
@@ -2167,6 +2203,7 @@ fn example_with_dev_dep() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [lib]
@@ -2250,6 +2287,7 @@ fn doctest_feature() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
                 [features]
                 bar = []
@@ -2307,6 +2345,7 @@ fn doctest_dev_dep() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [dev-dependencies]
@@ -2364,6 +2403,7 @@ fn dylib_doctest() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [lib]
@@ -2404,6 +2444,7 @@ fn dylib_doctest2() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [lib]
@@ -2435,6 +2476,7 @@ fn cyclic_dev_dep_doc_test() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [dev-dependencies]
@@ -2455,6 +2497,7 @@ fn cyclic_dev_dep_doc_test() {
                 [package]
                 name = "bar"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [dependencies]
@@ -2492,6 +2535,7 @@ fn dev_dep_with_build_script() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [dev-dependencies]
@@ -2506,6 +2550,7 @@ fn dev_dep_with_build_script() {
                 [package]
                 name = "bar"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
                 build = "build.rs"
             "#,
@@ -2596,6 +2641,7 @@ fn test_multiple_packages() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [dependencies.d1]
@@ -2615,6 +2661,7 @@ fn test_multiple_packages() {
                 [package]
                 name = "d1"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [lib]
@@ -2629,6 +2676,7 @@ fn test_multiple_packages() {
                 [package]
                 name = "d2"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [lib]
@@ -2684,6 +2732,7 @@ fn selective_test_wonky_profile() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [profile.release]
@@ -2710,6 +2759,7 @@ fn selective_test_optional_dep() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [dependencies]
@@ -2768,6 +2818,53 @@ fn only_test_docs() {
 }
 
 #[cargo_test]
+fn doctest_with_library_paths() {
+    let p = project();
+    // Only link search directories within the target output directory are
+    // propagated through to dylib_path_envvar() (see #3366).
+    let dir1 = p.target_debug_dir().join("foo\\backslash");
+    let dir2 = p.target_debug_dir().join("dir=containing=equal=signs");
+
+    let p = p
+        .file("Cargo.toml", &basic_manifest("foo", "0.0.0"))
+        .file(
+            "build.rs",
+            &format!(
+                r##"
+                    fn main() {{
+                        println!(r#"cargo::rustc-link-search=native={}"#);
+                        println!(r#"cargo::rustc-link-search={}"#);
+                    }}
+                "##,
+                dir1.display(),
+                dir2.display()
+            ),
+        )
+        .file(
+            "src/lib.rs",
+            &format!(
+                r##"
+                    /// ```
+                    /// foo::assert_search_path();
+                    /// ```
+                    pub fn assert_search_path() {{
+                        let search_path = std::env::var_os("{}").unwrap();
+                        let paths = std::env::split_paths(&search_path).collect::<Vec<_>>();
+                        assert!(paths.contains(&r#"{}"#.into()));
+                        assert!(paths.contains(&r#"{}"#.into()));
+                    }}
+                "##,
+                dylib_path_envvar(),
+                dir1.display(),
+                dir2.display()
+            ),
+        )
+        .build();
+
+    p.cargo("test --doc").run();
+}
+
+#[cargo_test]
 fn test_panic_abort_with_dep() {
     let p = project()
         .file(
@@ -2776,6 +2873,7 @@ fn test_panic_abort_with_dep() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [dependencies]
@@ -2809,6 +2907,7 @@ fn cfg_test_even_with_no_harness() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [lib]
@@ -2843,6 +2942,7 @@ fn panic_abort_multiple() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [dependencies]
@@ -2871,6 +2971,7 @@ fn pass_correct_cfgs_flags_to_rustdoc() {
                 [package]
                 name = "foo"
                 version = "0.1.0"
+                edition = "2015"
                 authors = []
 
                 [features]
@@ -2900,6 +3001,7 @@ fn pass_correct_cfgs_flags_to_rustdoc() {
                 [package]
                 name = "feature_a"
                 version = "0.1.0"
+                edition = "2015"
                 authors = []
 
                 [features]
@@ -2965,6 +3067,7 @@ fn test_release_ignore_panic() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [dependencies]
@@ -2998,6 +3101,7 @@ fn test_many_with_features() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [dependencies]
@@ -3026,6 +3130,7 @@ fn test_all_workspace() {
                 [package]
                 name = "foo"
                 version = "0.1.0"
+                edition = "2015"
 
                 [dependencies]
                 bar = { path = "bar" }
@@ -3053,6 +3158,7 @@ fn test_all_exclude() {
                 [package]
                 name = "foo"
                 version = "0.1.0"
+                edition = "2015"
 
                 [workspace]
                 members = ["bar", "baz"]
@@ -3082,6 +3188,7 @@ fn test_all_exclude_not_found() {
                 [package]
                 name = "foo"
                 version = "0.1.0"
+                edition = "2015"
 
                 [workspace]
                 members = ["bar"]
@@ -3110,6 +3217,7 @@ fn test_all_exclude_glob() {
                 [package]
                 name = "foo"
                 version = "0.1.0"
+                edition = "2015"
 
                 [workspace]
                 members = ["bar", "baz"]
@@ -3139,6 +3247,7 @@ fn test_all_exclude_glob_not_found() {
                 [package]
                 name = "foo"
                 version = "0.1.0"
+                edition = "2015"
 
                 [workspace]
                 members = ["bar"]
@@ -3314,6 +3423,7 @@ fn test_all_member_dependency_same_name() {
                 [package]
                 name = "a"
                 version = "0.1.0"
+                edition = "2015"
 
                 [dependencies]
                 a = "0.1.0"
@@ -3338,6 +3448,7 @@ fn doctest_only_with_dev_dep() {
                 [package]
                 name = "a"
                 version = "0.1.0"
+                edition = "2015"
 
                 [dev-dependencies]
                 b = { path = "b" }
@@ -3410,8 +3521,8 @@ fn test_many_targets() {
         .with_stdout_contains("test bin_b ... ok")
         .with_stdout_contains("test test_a ... ok")
         .with_stdout_contains("test test_b ... ok")
-        .with_stderr_contains("[RUNNING] `rustc --crate-name a examples/a.rs [..]`")
-        .with_stderr_contains("[RUNNING] `rustc --crate-name b examples/b.rs [..]`")
+        .with_stderr_contains("[RUNNING] `rustc --crate-name a --edition=2015 examples/a.rs [..]`")
+        .with_stderr_contains("[RUNNING] `rustc --crate-name b --edition=2015 examples/b.rs [..]`")
         .run();
 }
 
@@ -3424,6 +3535,7 @@ fn doctest_and_registry() {
                 [package]
                 name = "a"
                 version = "0.1.0"
+                edition = "2015"
 
                 [dependencies]
                 b = { path = "b" }
@@ -3449,6 +3561,7 @@ fn doctest_and_registry() {
                 [package]
                 name = "c"
                 version = "0.1.0"
+                edition = "2015"
 
                 [dependencies]
                 b = "0.1"
@@ -3543,6 +3656,7 @@ fn cyclic_dev() {
                 [package]
                 name = "foo"
                 version = "0.1.0"
+                edition = "2015"
 
                 [dev-dependencies]
                 foo = { path = "." }
@@ -3566,6 +3680,7 @@ fn cyclical_dep_with_missing_feature() {
                 [package]
                 name = "foo"
                 version = "0.1.0"
+                edition = "2015"
 
                 [dev-dependencies]
                 foo = { path = ".", features = ["missing"] }
@@ -3597,6 +3712,7 @@ fn publish_a_crate_without_tests() {
                 [package]
                 name = "testless"
                 version = "0.1.0"
+                edition = "2015"
                 exclude = ["tests/*"]
 
                 [[test]]
@@ -3618,6 +3734,7 @@ fn publish_a_crate_without_tests() {
                 [package]
                 name = "foo"
                 version = "0.1.0"
+                edition = "2015"
 
                 [dependencies]
                 testless = "0.1.0"
@@ -3646,6 +3763,7 @@ fn find_dependency_of_proc_macro_dependency_with_target() {
                 [package]
                 name = "root"
                 version = "0.1.0"
+                edition = "2015"
                 authors = []
 
                 [dependencies]
@@ -3668,6 +3786,7 @@ fn find_dependency_of_proc_macro_dependency_with_target() {
                 [package]
                 name = "proc_macro_dep"
                 version = "0.1.0"
+                edition = "2015"
                 authors = []
 
                 [lib]
@@ -3872,6 +3991,7 @@ fn test_hint_workspace_nonvirtual() {
             [package]
             name = "foo"
             version = "0.1.0"
+            edition = "2015"
 
             [workspace]
             members = ["a"]
@@ -3902,6 +4022,7 @@ fn json_artifact_includes_test_flag() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
                 authors = []
 
                 [profile.test]
@@ -4032,6 +4153,7 @@ fn test_build_script_links() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
                 links = 'something'
 
                 [lib]
@@ -4054,6 +4176,7 @@ fn doctest_skip_staticlib() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
 
                 [lib]
                 crate-type = ["staticlib"]
@@ -4217,6 +4340,7 @@ fn test_dep_with_dev() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
 
                 [dependencies]
                 bar = { path = "bar" }
@@ -4229,6 +4353,7 @@ fn test_dep_with_dev() {
                 [package]
                 name = "bar"
                 version = "0.0.1"
+                edition = "2015"
 
                 [dev-dependencies]
                 devdep = "0.1"
@@ -4458,6 +4583,7 @@ fn panic_abort_tests() {
                 [package]
                 name = 'foo'
                 version = '0.1.0'
+                edition = "2015"
 
                 [dependencies]
                 a = { path = 'a' }
@@ -4498,6 +4624,7 @@ fn panic_abort_doc_tests() {
                 [package]
                 name = 'foo'
                 version = '0.1.0'
+                edition = "2015"
 
                 [profile.dev]
                 panic = 'abort'
@@ -4529,6 +4656,7 @@ fn panic_abort_only_test() {
                 [package]
                 name = 'foo'
                 version = '0.1.0'
+                edition = "2015"
 
                 [dependencies]
                 a = { path = 'a' }
@@ -4565,6 +4693,7 @@ fn panic_abort_test_profile_inherits() {
                 [package]
                 name = 'foo'
                 version = '0.1.0'
+                edition = "2015"
 
                 [dependencies]
                 a = { path = 'a' }
@@ -4925,7 +5054,7 @@ fn cargo_test_print_env_verbose() {
 [FINISHED] `test` profile [unoptimized + debuginfo] target(s) in [..]
 [RUNNING] `[..]CARGO_MANIFEST_DIR=[CWD][..] [CWD]/target/debug/deps/foo-[..][EXE]`
 [DOCTEST] foo
-[RUNNING] `[..]CARGO_MANIFEST_DIR=[CWD][..] rustdoc --crate-type lib --crate-name foo[..]",
+[RUNNING] `[..]CARGO_MANIFEST_DIR=[CWD][..] rustdoc --edition=2015 --crate-type lib --crate-name foo[..]",
         )
         .run();
 }

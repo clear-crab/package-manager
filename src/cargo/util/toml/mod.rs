@@ -9,6 +9,7 @@ use crate::AlreadyPrintedError;
 use anyhow::{anyhow, bail, Context as _};
 use cargo_platform::Platform;
 use cargo_util::paths;
+use cargo_util_schemas::core::PartialVersion;
 use cargo_util_schemas::manifest;
 use cargo_util_schemas::manifest::RustVersion;
 use itertools::Itertools;
@@ -28,7 +29,7 @@ use crate::core::{GitReference, PackageIdSpec, SourceId, WorkspaceConfig, Worksp
 use crate::sources::{CRATES_IO_INDEX, CRATES_IO_REGISTRY};
 use crate::util::errors::{CargoResult, ManifestError};
 use crate::util::interning::InternedString;
-use crate::util::{self, config::ConfigRelativePath, GlobalContext, IntoUrl, OptVersionReq};
+use crate::util::{self, context::ConfigRelativePath, GlobalContext, IntoUrl, OptVersionReq};
 
 mod embedded;
 mod targets;
@@ -563,14 +564,69 @@ pub fn to_real_manifest(
         source_id,
     );
 
+    let rust_version = if let Some(rust_version) = &package.rust_version {
+        let rust_version = field_inherit_with(rust_version.clone(), "rust_version", || {
+            inherit()?.rust_version()
+        })?;
+        Some(rust_version)
+    } else {
+        None
+    };
+
     let edition = if let Some(edition) = package.edition.clone() {
         let edition: Edition = field_inherit_with(edition, "edition", || inherit()?.edition())?
             .parse()
             .with_context(|| "failed to parse the `edition` key")?;
         package.edition = Some(manifest::InheritableField::Value(edition.to_string()));
+        if let Some(rust_version) = &rust_version {
+            let req = rust_version.to_caret_req();
+            if let Some(first_version) = edition.first_version() {
+                let unsupported =
+                    semver::Version::new(first_version.major, first_version.minor - 1, 9999);
+                if req.matches(&unsupported) {
+                    bail!(
+                        "rust-version {} is older than first version ({}) required by \
+                            the specified edition ({})",
+                        rust_version,
+                        first_version,
+                        edition,
+                    )
+                }
+            }
+        }
         edition
     } else {
-        Edition::Edition2015
+        let msrv_edition = if let Some(rust_version) = &rust_version {
+            Edition::ALL
+                .iter()
+                .filter(|e| {
+                    e.first_version()
+                        .map(|e| {
+                            let e = PartialVersion::from(e);
+                            e <= **rust_version
+                        })
+                        .unwrap_or_default()
+                })
+                .max()
+                .copied()
+        } else {
+            None
+        }
+        .unwrap_or_default();
+        let default_edition = Edition::default();
+        let latest_edition = Edition::LATEST_STABLE;
+
+        let tip = if msrv_edition == default_edition {
+            String::new()
+        } else if msrv_edition == latest_edition {
+            format!(" while the latest is {latest_edition}")
+        } else {
+            format!(" while {msrv_edition} is compatible with `rust-version`")
+        };
+        warnings.push(format!(
+            "no edition set: defaulting to the {default_edition} edition{tip}",
+        ));
+        default_edition
     };
     // Add these lines if start a new unstable edition.
     // ```
@@ -587,29 +643,6 @@ pub fn to_real_manifest(
             edition
         )));
     }
-
-    let rust_version = if let Some(rust_version) = &package.rust_version {
-        let rust_version = field_inherit_with(rust_version.clone(), "rust_version", || {
-            inherit()?.rust_version()
-        })?;
-        let req = rust_version.to_caret_req();
-        if let Some(first_version) = edition.first_version() {
-            let unsupported =
-                semver::Version::new(first_version.major, first_version.minor - 1, 9999);
-            if req.matches(&unsupported) {
-                bail!(
-                    "rust-version {} is older than first version ({}) required by \
-                            the specified edition ({})",
-                    rust_version,
-                    first_version,
-                    edition,
-                )
-            }
-        }
-        Some(rust_version)
-    } else {
-        None
-    };
 
     if package.metabuild.is_some() {
         features.require(Feature::metabuild())?;
@@ -727,6 +760,27 @@ pub fn to_real_manifest(
                 v.unused_keys(),
                 manifest_ctx.warnings,
             );
+            let mut resolved = resolved;
+            if let manifest::TomlDependency::Detailed(ref mut d) = resolved {
+                if d.public.is_some() {
+                    if matches!(dep.kind(), DepKind::Normal) {
+                        if !manifest_ctx
+                            .features
+                            .require(Feature::public_dependency())
+                            .is_ok()
+                            && !manifest_ctx.gctx.cli_unstable().public_dependency
+                        {
+                            d.public = None;
+                            manifest_ctx.warnings.push(format!(
+                            "Ignoring `public` on dependency {name}.  Pass `-Zpublic-dependency` to enable support for it", name = &dep.name_in_toml()
+                        ))
+                        }
+                    } else {
+                        d.public = None;
+                    }
+                }
+            }
+
             manifest_ctx.deps.push(dep);
             deps.insert(
                 n.clone(),
@@ -1992,15 +2046,23 @@ fn detailed_dep_to_dependency<P: ResolveToPath + Clone>(
     }
 
     if let Some(p) = orig.public {
-        manifest_ctx
-            .features
-            .require(Feature::public_dependency())?;
-
-        if dep.kind() != DepKind::Normal {
-            bail!("'public' specifier can only be used on regular dependencies, not {:?} dependencies", dep.kind());
+        let public_feature = manifest_ctx.features.require(Feature::public_dependency());
+        let with_z_public = manifest_ctx.gctx.cli_unstable().public_dependency;
+        let with_public_feature = public_feature.is_ok();
+        if !with_public_feature && (!with_z_public && !manifest_ctx.gctx.nightly_features_allowed) {
+            public_feature?;
         }
 
-        dep.set_public(p);
+        if dep.kind() != DepKind::Normal {
+            match (with_public_feature, with_z_public) {
+                (true, _) => bail!("'public' specifier can only be used on regular dependencies, not {:?} dependencies", dep.kind()),
+                (_, true) => bail!("'public' specifier can only be used on regular dependencies, not {:?} dependencies", dep.kind()),
+                // If public feature isn't enabled in nightly, we instead warn that.
+                (false, false) =>  manifest_ctx.warnings.push(format!("'public' specifier can only be used on regular dependencies, not {:?} dependencies", dep.kind())),
+            }
+        } else {
+            dep.set_public(p);
+        }
     }
 
     if let (Some(artifact), is_lib, target) = (

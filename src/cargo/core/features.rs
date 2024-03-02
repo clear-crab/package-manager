@@ -112,7 +112,7 @@
 //!    and summarize it similar to the other entries. Update the rest of the
 //!    documentation to add the new feature.
 //!
-//! [`GlobalContext::cli_unstable`]: crate::util::config::GlobalContext::cli_unstable
+//! [`GlobalContext::cli_unstable`]: crate::util::context::GlobalContext::cli_unstable
 //! [`fail_if_stable_opt`]: CliUnstable::fail_if_stable_opt
 //! [`features!`]: macro.features.html
 //! [`unstable_cli_options!`]: macro.unstable_cli_options.html
@@ -180,9 +180,12 @@ pub type AllowFeatures = BTreeSet<String>;
 /// [`is_stable`]: Edition::is_stable
 /// [`toml::to_real_manifest`]: crate::util::toml::to_real_manifest
 /// [`features!`]: macro.features.html
-#[derive(Clone, Copy, Debug, Hash, PartialOrd, Ord, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Default, Clone, Copy, Debug, Hash, PartialOrd, Ord, Eq, PartialEq, Serialize, Deserialize,
+)]
 pub enum Edition {
     /// The 2015 edition
+    #[default]
     Edition2015,
     /// The 2018 edition
     Edition2018,
@@ -199,6 +202,12 @@ impl Edition {
     pub const LATEST_UNSTABLE: Option<Edition> = Some(Edition::Edition2024);
     /// The latest stable edition.
     pub const LATEST_STABLE: Edition = Edition::Edition2021;
+    pub const ALL: &'static [Edition] = &[
+        Self::Edition2015,
+        Self::Edition2018,
+        Self::Edition2021,
+        Self::Edition2024,
+    ];
     /// Possible values allowed for the `--edition` CLI flag.
     ///
     /// This requires a static value due to the way clap works, otherwise I
@@ -256,9 +265,7 @@ impl Edition {
     /// Updates the given [`ProcessBuilder`] to include the appropriate flags
     /// for setting the edition.
     pub(crate) fn cmd_edition_arg(&self, cmd: &mut ProcessBuilder) {
-        if *self != Edition::Edition2015 {
-            cmd.arg(format!("--edition={}", self));
-        }
+        cmd.arg(format!("--edition={}", self));
         if !self.is_stable() {
             cmd.arg("-Z").arg("unstable-options");
         }
@@ -765,6 +772,7 @@ unstable_cli_options!(
     panic_abort_tests: bool = ("Enable support to run tests with -Cpanic=abort"),
     precise_pre_release: bool = ("Enable pre-release versions to be selected with `update --precise`"),
     profile_rustflags: bool = ("Enable the `rustflags` option in profiles in .cargo/config.toml file"),
+    public_dependency: bool = ("Respect a dependency's `public` field in Cargo.toml to control public/private dependencies"),
     publish_timeout: bool = ("Enable the `publish.timeout` key in .cargo/config.toml file"),
     rustdoc_map: bool = ("Allow passing external documentation mappings to rustdoc"),
     rustdoc_scrape_examples: bool = ("Allows Rustdoc to scrape code examples from reverse-dependencies"),
@@ -1141,6 +1149,7 @@ impl CliUnstable {
             "mtime-on-use" => self.mtime_on_use = parse_empty(k, v)?,
             "no-index-update" => self.no_index_update = parse_empty(k, v)?,
             "panic-abort-tests" => self.panic_abort_tests = parse_empty(k, v)?,
+            "public-dependency" => self.public_dependency = parse_empty(k, v)?,
             "profile-rustflags" => self.profile_rustflags = parse_empty(k, v)?,
             "precise-pre-release" => self.precise_pre_release = parse_empty(k, v)?,
             "trim-paths" => self.trim_paths = parse_empty(k, v)?,

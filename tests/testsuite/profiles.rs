@@ -14,6 +14,7 @@ fn profile_overrides() {
 
                 name = "test"
                 version = "0.0.0"
+                edition = "2015"
                 authors = []
 
                 [profile.dev]
@@ -28,7 +29,7 @@ fn profile_overrides() {
         .with_stderr(
             "\
 [COMPILING] test v0.0.0 ([CWD])
-[RUNNING] `rustc --crate-name test src/lib.rs [..]--crate-type lib \
+[RUNNING] `rustc --crate-name test --edition=2015 src/lib.rs [..]--crate-type lib \
         --emit=[..]link[..]\
         -C opt-level=1[..]\
         -C debug-assertions=on \
@@ -52,6 +53,7 @@ fn opt_level_override_0() {
 
                 name = "test"
                 version = "0.0.0"
+                edition = "2015"
                 authors = []
 
                 [profile.dev]
@@ -64,7 +66,7 @@ fn opt_level_override_0() {
         .with_stderr(
             "\
 [COMPILING] test v0.0.0 ([CWD])
-[RUNNING] `rustc --crate-name test src/lib.rs [..]--crate-type lib \
+[RUNNING] `rustc --crate-name test --edition=2015 src/lib.rs [..]--crate-type lib \
         --emit=[..]link[..]\
         -C debuginfo=2 [..]\
         -C metadata=[..] \
@@ -85,6 +87,7 @@ fn debug_override_1() {
                 [package]
                 name = "test"
                 version = "0.0.0"
+                edition = "2015"
                 authors = []
 
                 [profile.dev]
@@ -97,7 +100,7 @@ fn debug_override_1() {
         .with_stderr(
             "\
 [COMPILING] test v0.0.0 ([CWD])
-[RUNNING] `rustc --crate-name test src/lib.rs [..]--crate-type lib \
+[RUNNING] `rustc --crate-name test --edition=2015 src/lib.rs [..]--crate-type lib \
         --emit=[..]link[..]\
         -C debuginfo=1 [..]\
         -C metadata=[..] \
@@ -119,6 +122,7 @@ fn check_opt_level_override(profile_level: &str, rustc_level: &str) {
 
                     name = "test"
                     version = "0.0.0"
+                    edition = "2015"
                     authors = []
 
                     [profile.dev]
@@ -133,7 +137,7 @@ fn check_opt_level_override(profile_level: &str, rustc_level: &str) {
         .with_stderr(&format!(
             "\
 [COMPILING] test v0.0.0 ([CWD])
-[RUNNING] `rustc --crate-name test src/lib.rs [..]--crate-type lib \
+[RUNNING] `rustc --crate-name test --edition=2015 src/lib.rs [..]--crate-type lib \
         --emit=[..]link \
         -C opt-level={level}[..]\
         -C debuginfo=2 [..]\
@@ -171,6 +175,7 @@ fn top_level_overrides_deps() {
 
                 name = "test"
                 version = "0.0.0"
+                edition = "2015"
                 authors = []
 
                 [profile.release]
@@ -189,6 +194,7 @@ fn top_level_overrides_deps() {
 
                 name = "foo"
                 version = "0.0.0"
+                edition = "2015"
                 authors = []
 
                 [profile.release]
@@ -206,7 +212,7 @@ fn top_level_overrides_deps() {
         .with_stderr(&format!(
             "\
 [COMPILING] foo v0.0.0 ([CWD]/foo)
-[RUNNING] `rustc --crate-name foo foo/src/lib.rs [..]\
+[RUNNING] `rustc --crate-name foo --edition=2015 foo/src/lib.rs [..]\
         --crate-type dylib --crate-type rlib \
         --emit=[..]link \
         -C prefer-dynamic \
@@ -216,7 +222,7 @@ fn top_level_overrides_deps() {
         --out-dir [CWD]/target/release/deps \
         -L dependency=[CWD]/target/release/deps`
 [COMPILING] test v0.0.0 ([CWD])
-[RUNNING] `rustc --crate-name test src/lib.rs [..]--crate-type lib \
+[RUNNING] `rustc --crate-name test --edition=2015 src/lib.rs [..]--crate-type lib \
         --emit=[..]link \
         -C opt-level=1[..]\
         -C debuginfo=2 [..]\
@@ -243,6 +249,7 @@ fn profile_in_non_root_manifest_triggers_a_warning() {
                 [package]
                 name = "foo"
                 version = "0.1.0"
+                edition = "2015"
                 authors = []
 
                 [workspace]
@@ -259,6 +266,7 @@ fn profile_in_non_root_manifest_triggers_a_warning() {
                 [package]
                 name = "bar"
                 version = "0.1.0"
+                edition = "2015"
                 authors = []
                 workspace = ".."
 
@@ -304,6 +312,7 @@ fn profile_in_virtual_manifest_works() {
                 [package]
                 name = "bar"
                 version = "0.1.0"
+                edition = "2015"
                 authors = []
                 workspace = ".."
             "#,
@@ -331,6 +340,7 @@ fn profile_lto_string_bool_dev() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
 
                 [profile.dev]
                 lto = "true"
@@ -362,6 +372,7 @@ fn profile_panic_test_bench() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
 
                 [profile.test]
                 panic = "abort"
@@ -392,6 +403,7 @@ fn profile_doc_deprecated() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
 
                 [profile.doc]
                 opt-level = 0
@@ -417,6 +429,7 @@ fn panic_unwind_does_not_build_twice() {
             [package]
             name = "foo"
             version = "0.1.0"
+            edition = "2015"
 
             [profile.dev]
             panic = "unwind"
@@ -431,11 +444,11 @@ fn panic_unwind_does_not_build_twice() {
         .with_stderr_unordered(
             "\
 [COMPILING] foo [..]
-[RUNNING] `rustc --crate-name foo src/lib.rs [..]--crate-type lib [..]
-[RUNNING] `rustc --crate-name foo src/lib.rs [..] --test [..]
-[RUNNING] `rustc --crate-name foo src/main.rs [..]--crate-type bin [..]
-[RUNNING] `rustc --crate-name foo src/main.rs [..] --test [..]
-[RUNNING] `rustc --crate-name t1 tests/t1.rs [..]
+[RUNNING] `rustc --crate-name foo --edition=2015 src/lib.rs [..]--crate-type lib [..]
+[RUNNING] `rustc --crate-name foo --edition=2015 src/lib.rs [..] --test [..]
+[RUNNING] `rustc --crate-name foo --edition=2015 src/main.rs [..]--crate-type bin [..]
+[RUNNING] `rustc --crate-name foo --edition=2015 src/main.rs [..] --test [..]
+[RUNNING] `rustc --crate-name t1 --edition=2015 tests/t1.rs [..]
 [FINISHED] [..]
 [EXECUTABLE] `[..]/target/debug/deps/t1-[..][EXE]`
 [EXECUTABLE] `[..]/target/debug/deps/foo-[..][EXE]`
@@ -455,6 +468,7 @@ fn debug_0_report() {
             [package]
             name = "foo"
             version = "0.1.0"
+            edition = "2015"
 
             [profile.dev]
             debug = 0
@@ -467,7 +481,7 @@ fn debug_0_report() {
         .with_stderr(
             "\
 [COMPILING] foo v0.1.0 [..]
-[RUNNING] `rustc --crate-name foo src/lib.rs [..]
+[RUNNING] `rustc --crate-name foo --edition=2015 src/lib.rs [..]
 [FINISHED] `dev` profile [unoptimized] target(s) in [..]
 ",
         )
@@ -484,6 +498,7 @@ fn thin_lto_works() {
                 [package]
                 name = "top"
                 version = "0.5.0"
+                edition = "2015"
                 authors = []
 
                 [profile.release]
@@ -513,6 +528,7 @@ fn strip_works() {
                 [package]
                 name = "foo"
                 version = "0.1.0"
+                edition = "2015"
 
                 [profile.release]
                 strip = 'symbols'
@@ -541,6 +557,7 @@ fn strip_passes_unknown_option_to_rustc() {
                 [package]
                 name = "foo"
                 version = "0.1.0"
+                edition = "2015"
 
                 [profile.release]
                 strip = 'unknown'
@@ -570,6 +587,7 @@ fn strip_accepts_true_to_strip_symbols() {
                 [package]
                 name = "foo"
                 version = "0.1.0"
+                edition = "2015"
 
                 [profile.release]
                 strip = true
@@ -598,6 +616,7 @@ fn strip_accepts_false_to_disable_strip() {
                 [package]
                 name = "foo"
                 version = "0.1.0"
+                edition = "2015"
 
                 [profile.release]
                 strip = false
@@ -620,6 +639,7 @@ fn strip_debuginfo_in_release() {
                 [package]
                 name = "foo"
                 version = "0.1.0"
+                edition = "2015"
             "#,
         )
         .file("src/main.rs", "fn main() {}")
@@ -639,6 +659,7 @@ fn strip_debuginfo_without_debug() {
                 [package]
                 name = "foo"
                 version = "0.1.0"
+                edition = "2015"
                 
                 [profile.dev]
                 debug = 0
@@ -661,6 +682,7 @@ fn do_not_strip_debuginfo_with_requested_debug() {
                 [package]
                 name = "foo"
                 version = "0.1.0"
+                edition = "2015"
 
                 [dependencies]
                 bar = { path = "bar" }
@@ -676,6 +698,7 @@ fn do_not_strip_debuginfo_with_requested_debug() {
                 [package]
                 name = "bar"
                 version = "0.1.0"
+                edition = "2015"
         "#,
         )
         .file("bar/src/lib.rs", "")
@@ -700,6 +723,7 @@ fn rustflags_works() {
             [package]
             name = "foo"
             version = "0.0.1"
+            edition = "2015"
             "#,
         )
         .file("src/main.rs", "fn main() {}")
@@ -728,6 +752,7 @@ fn rustflags_works_with_env() {
             [package]
             name = "foo"
             version = "0.0.1"
+            edition = "2015"
             "#,
         )
         .file("src/main.rs", "fn main() {}")
@@ -758,6 +783,7 @@ fn rustflags_requires_cargo_feature() {
                 [package]
                 name = "foo"
                 version = "0.0.1"
+                edition = "2015"
             "#,
         )
         .file("src/main.rs", "fn main() {}")
@@ -790,6 +816,7 @@ Caused by:
             [package]
             name = "foo"
             version = "0.0.1"
+            edition = "2015"
 
             [dependencies]
             bar = "1.0"
@@ -831,6 +858,7 @@ fn debug_options_valid() {
                     name = "foo"
                     authors = []
                     version = "0.0.0"
+                    edition = "2015"
 
                     [profile.dev]
                     debug = "{option}"
