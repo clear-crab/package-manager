@@ -54,7 +54,7 @@ use crate::ops;
 use crate::ops::resolve::WorkspaceResolve;
 use crate::util::context::GlobalContext;
 use crate::util::interning::InternedString;
-use crate::util::{profile, CargoResult, StableHasher};
+use crate::util::{CargoResult, StableHasher};
 
 mod compile_filter;
 pub use compile_filter::{CompileFilter, FilterRule, LibRule};
@@ -142,6 +142,7 @@ pub fn compile_with_exec<'a>(
 }
 
 /// Like [`compile_with_exec`] but without warnings from manifest parsing.
+#[tracing::instrument(skip_all)]
 pub fn compile_ws<'a>(
     ws: &Workspace<'a>,
     options: &CompileOptions,
@@ -154,7 +155,6 @@ pub fn compile_ws<'a>(
         return Compilation::new(&bcx);
     }
     crate::core::gc::auto_gc(bcx.gctx);
-    let _p = profile::start("compiling");
     let build_runner = BuildRunner::new(&bcx)?;
     build_runner.compile(exec)
 }
@@ -197,6 +197,7 @@ pub fn print<'a>(
 ///
 /// For how it works and what data it collects,
 /// please see the [module-level documentation](self).
+#[tracing::instrument(skip_all)]
 pub fn create_bcx<'a, 'gctx>(
     ws: &'a Workspace<'gctx>,
     options: &'a CompileOptions,
@@ -479,35 +480,28 @@ pub fn create_bcx<'a, 'gctx>(
     }
 
     if honor_rust_version {
-        // Remove any pre-release identifiers for easier comparison
-        let current_version = &target_data.rustc.version;
-        let untagged_version = semver::Version::new(
-            current_version.major,
-            current_version.minor,
-            current_version.patch,
-        );
+        let rustc_version = target_data.rustc.version.clone().into();
 
         let mut incompatible = Vec::new();
         let mut local_incompatible = false;
         for unit in unit_graph.keys() {
-            let Some(version) = unit.pkg.rust_version() else {
+            let Some(pkg_msrv) = unit.pkg.rust_version() else {
                 continue;
             };
 
-            let req = version.to_caret_req();
-            if req.matches(&untagged_version) {
+            if pkg_msrv.is_compatible_with(&rustc_version) {
                 continue;
             }
 
             local_incompatible |= unit.is_local();
-            incompatible.push((unit, version));
+            incompatible.push((unit, pkg_msrv));
         }
         if !incompatible.is_empty() {
             use std::fmt::Write as _;
 
             let plural = if incompatible.len() == 1 { "" } else { "s" };
             let mut message = format!(
-                "rustc {current_version} is not supported by the following package{plural}:\n"
+                "rustc {rustc_version} is not supported by the following package{plural}:\n"
             );
             incompatible.sort_by_key(|(unit, _)| (unit.pkg.name(), unit.pkg.version()));
             for (unit, msrv) in incompatible {
@@ -528,7 +522,7 @@ pub fn create_bcx<'a, 'gctx>(
                     &mut message,
                     "Either upgrade rustc or select compatible dependency versions with
 `cargo update <name>@<current-ver> --precise <compatible-ver>`
-where `<compatible-ver>` is the latest version supporting rustc {current_version}",
+where `<compatible-ver>` is the latest version supporting rustc {rustc_version}",
                 )
                 .unwrap();
             }

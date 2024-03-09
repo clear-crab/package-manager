@@ -71,8 +71,9 @@ use crate::ops;
 use crate::sources::PathSource;
 use crate::util::cache_lock::CacheLockMode;
 use crate::util::errors::CargoResult;
-use crate::util::{profile, CanonicalUrl};
+use crate::util::CanonicalUrl;
 use anyhow::Context as _;
+use cargo_util_schemas::manifest::RustVersion;
 use std::collections::{HashMap, HashSet};
 use tracing::{debug, trace};
 
@@ -147,8 +148,6 @@ pub fn resolve_ws_with_opts<'gctx>(
         // Second, resolve with precisely what we're doing. Filter out
         // transitive dependencies if necessary, specify features, handle
         // overrides, etc.
-        let _p = profile::start("resolving with overrides...");
-
         add_overrides(&mut registry, ws)?;
 
         for (replace_spec, dep) in ws.root_replace() {
@@ -234,6 +233,7 @@ pub fn resolve_ws_with_opts<'gctx>(
     })
 }
 
+#[tracing::instrument(skip_all)]
 fn resolve_with_registry<'gctx>(
     ws: &Workspace<'gctx>,
     registry: &mut PackageRegistry<'gctx>,
@@ -271,6 +271,7 @@ fn resolve_with_registry<'gctx>(
 ///
 /// If `register_patches` is true, then entries from the `[patch]` table in
 /// the manifest will be added to the given `PackageRegistry`.
+#[tracing::instrument(skip_all)]
 pub fn resolve_with_previous<'gctx>(
     registry: &mut PackageRegistry<'gctx>,
     ws: &Workspace<'gctx>,
@@ -318,7 +319,7 @@ pub fn resolve_with_previous<'gctx>(
         version_prefs.version_ordering(VersionOrdering::MinimumVersionsFirst)
     }
     if ws.gctx().cli_unstable().msrv_policy {
-        version_prefs.max_rust_version(ws.rust_version().cloned());
+        version_prefs.max_rust_version(ws.rust_version().cloned().map(RustVersion::into_partial));
     }
 
     // This is a set of PackageIds of `[patch]` entries, and some related locked PackageIds, for
@@ -529,6 +530,7 @@ pub fn resolve_with_previous<'gctx>(
 
 /// Read the `paths` configuration variable to discover all path overrides that
 /// have been configured.
+#[tracing::instrument(skip_all)]
 pub fn add_overrides<'a>(
     registry: &mut PackageRegistry<'a>,
     ws: &Workspace<'a>,

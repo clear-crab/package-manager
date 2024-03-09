@@ -18,7 +18,7 @@ mod commands;
 use crate::command_prelude::*;
 
 fn main() {
-    setup_logger();
+    let _guard = setup_logger();
 
     let mut gctx = match GlobalContext::default() {
         Ok(gctx) => gctx,
@@ -41,16 +41,69 @@ fn main() {
     }
 }
 
-fn setup_logger() {
-    let env = tracing_subscriber::EnvFilter::from_env("CARGO_LOG");
+fn setup_logger() -> Option<ChromeFlushGuard> {
+    use tracing_subscriber::prelude::*;
 
-    tracing_subscriber::fmt()
+    let env = tracing_subscriber::EnvFilter::from_env("CARGO_LOG");
+    let fmt_layer = tracing_subscriber::fmt::layer()
         .with_timer(tracing_subscriber::fmt::time::Uptime::default())
         .with_ansi(std::io::IsTerminal::is_terminal(&std::io::stderr()))
         .with_writer(std::io::stderr)
-        .with_env_filter(env)
-        .init();
+        .with_filter(env);
+
+    let (profile_layer, profile_guard) = chrome_layer();
+
+    let registry = tracing_subscriber::registry()
+        .with(fmt_layer)
+        .with(profile_layer);
+    registry.init();
     tracing::trace!(start = humantime::format_rfc3339(std::time::SystemTime::now()).to_string());
+    profile_guard
+}
+
+#[cfg(target_has_atomic = "64")]
+type ChromeFlushGuard = tracing_chrome::FlushGuard;
+#[cfg(target_has_atomic = "64")]
+fn chrome_layer<S>() -> (
+    Option<tracing_chrome::ChromeLayer<S>>,
+    Option<ChromeFlushGuard>,
+)
+where
+    S: tracing::Subscriber
+        + for<'span> tracing_subscriber::registry::LookupSpan<'span>
+        + Send
+        + Sync,
+{
+    #![allow(clippy::disallowed_methods)]
+
+    if env_to_bool(std::env::var_os("CARGO_LOG_PROFILE").as_deref()) {
+        let capture_args =
+            env_to_bool(std::env::var_os("CARGO_LOG_PROFILE_CAPTURE_ARGS").as_deref());
+        let (layer, guard) = tracing_chrome::ChromeLayerBuilder::new()
+            .include_args(capture_args)
+            .build();
+        (Some(layer), Some(guard))
+    } else {
+        (None, None)
+    }
+}
+
+#[cfg(not(target_has_atomic = "64"))]
+type ChromeFlushGuard = ();
+#[cfg(not(target_has_atomic = "64"))]
+fn chrome_layer() -> (
+    Option<tracing_subscriber::layer::Identity>,
+    Option<ChromeFlushGuard>,
+) {
+    (None, None)
+}
+
+#[cfg(target_has_atomic = "64")]
+fn env_to_bool(os: Option<&OsStr>) -> bool {
+    match os.and_then(|os| os.to_str()) {
+        Some("1") | Some("true") => true,
+        _ => false,
+    }
 }
 
 /// Table for defining the aliases which come builtin in `Cargo`.
@@ -287,6 +340,7 @@ fn search_directories(gctx: &GlobalContext) -> Vec<PathBuf> {
 }
 
 /// Initialize libgit2.
+#[tracing::instrument(skip_all)]
 fn init_git(gctx: &GlobalContext) {
     // Disabling the owner validation in git can, in theory, lead to code execution
     // vulnerabilities. However, libgit2 does not launch executables, which is the foundation of
@@ -318,6 +372,7 @@ fn init_git(gctx: &GlobalContext) {
 /// If the user has a non-default network configuration, then libgit2 will be
 /// configured to use libcurl instead of the built-in networking support so
 /// that those configuration settings can be used.
+#[tracing::instrument(skip_all)]
 fn init_git_transports(gctx: &GlobalContext) {
     match needs_custom_http_transport(gctx) {
         Ok(true) => {}

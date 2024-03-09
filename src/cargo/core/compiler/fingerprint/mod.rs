@@ -377,7 +377,7 @@ use crate::core::Package;
 use crate::util::errors::CargoResult;
 use crate::util::interning::InternedString;
 use crate::util::{self, try_canonicalize};
-use crate::util::{internal, path_args, profile, StableHasher};
+use crate::util::{internal, path_args, StableHasher};
 use crate::{GlobalContext, CARGO_ENV};
 
 use super::custom_build::BuildDeps;
@@ -399,16 +399,15 @@ pub use dirty_reason::DirtyReason;
 /// transitively propagate throughout the dependency graph, it only forces this
 /// one unit which is very unlikely to be what you want unless you're
 /// exclusively talking about top-level units.
+#[tracing::instrument(
+    skip(build_runner, unit),
+    fields(package_id = %unit.pkg.package_id(), target = unit.target.name())
+)]
 pub fn prepare_target(
     build_runner: &mut BuildRunner<'_, '_>,
     unit: &Unit,
     force: bool,
 ) -> CargoResult<Job> {
-    let _p = profile::start(format!(
-        "fingerprint: {} / {}",
-        unit.pkg.package_id(),
-        unit.target.name()
-    ));
     let bcx = build_runner.bcx;
     let loc = build_runner.files().fingerprint_file_path(unit, "");
 

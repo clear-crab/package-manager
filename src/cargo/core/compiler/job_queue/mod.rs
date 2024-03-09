@@ -144,7 +144,7 @@ use crate::util::diagnostic_server::{self, DiagnosticPrinter};
 use crate::util::errors::AlreadyPrintedError;
 use crate::util::machine_message::{self, Message as _};
 use crate::util::CargoResult;
-use crate::util::{self, internal, profile};
+use crate::util::{self, internal};
 use crate::util::{DependencyQueue, GlobalContext, Progress, ProgressStyle, Queue};
 
 /// This structure is backed by the `DependencyQueue` type and manages the
@@ -467,12 +467,12 @@ impl<'gctx> JobQueue<'gctx> {
     /// This function will spawn off `config.jobs()` workers to build all of the
     /// necessary dependencies, in order. Freshness is propagated as far as
     /// possible along each dependency chain.
+    #[tracing::instrument(skip_all)]
     pub fn execute(
         mut self,
         build_runner: &mut BuildRunner<'_, '_>,
         plan: &mut BuildPlan,
     ) -> CargoResult<()> {
-        let _p = profile::start("executing the job graph");
         self.queue.queue_finished();
 
         let progress =
@@ -830,9 +830,7 @@ impl<'gctx> DrainState<'gctx> {
                 "https://doc.rust-lang.org/cargo/reference/profiles.html#default-profiles",
             );
             let message = format!(
-                "{}`{profile_name}` profile [{opt_type}]{} target(s) in {time_elapsed}",
-                profile_link.open(),
-                profile_link.close()
+                "{profile_link}`{profile_name}` profile [{opt_type}]{profile_link:#} target(s) in {time_elapsed}",
             );
             if !build_runner.bcx.build_config.build_plan {
                 // It doesn't really matter if this fails.

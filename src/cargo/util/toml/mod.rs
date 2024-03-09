@@ -9,7 +9,6 @@ use crate::AlreadyPrintedError;
 use anyhow::{anyhow, bail, Context as _};
 use cargo_platform::Platform;
 use cargo_util::paths;
-use cargo_util_schemas::core::PartialVersion;
 use cargo_util_schemas::manifest;
 use cargo_util_schemas::manifest::RustVersion;
 use itertools::Itertools;
@@ -44,6 +43,7 @@ use self::targets::targets;
 /// within the manifest. For virtual manifests, these paths can only
 /// come from patched or replaced dependencies. These paths are not
 /// canonicalized.
+#[tracing::instrument(skip(gctx))]
 pub fn read_manifest(
     path: &Path,
     source_id: SourceId,
@@ -423,6 +423,7 @@ pub fn prepare_for_publish(
     }
 }
 
+#[tracing::instrument(skip_all)]
 pub fn to_real_manifest(
     me: manifest::TomlManifest,
     embedded: bool,
@@ -578,17 +579,15 @@ pub fn to_real_manifest(
             .parse()
             .with_context(|| "failed to parse the `edition` key")?;
         package.edition = Some(manifest::InheritableField::Value(edition.to_string()));
-        if let Some(rust_version) = &rust_version {
-            let req = rust_version.to_caret_req();
-            if let Some(first_version) = edition.first_version() {
-                let unsupported =
-                    semver::Version::new(first_version.major, first_version.minor - 1, 9999);
-                if req.matches(&unsupported) {
+        if let Some(pkg_msrv) = &rust_version {
+            if let Some(edition_msrv) = edition.first_version() {
+                let edition_msrv = RustVersion::try_from(edition_msrv).unwrap();
+                if !edition_msrv.is_compatible_with(pkg_msrv.as_partial()) {
                     bail!(
                         "rust-version {} is older than first version ({}) required by \
                             the specified edition ({})",
-                        rust_version,
-                        first_version,
+                        pkg_msrv,
+                        edition_msrv,
                         edition,
                     )
                 }
@@ -596,14 +595,14 @@ pub fn to_real_manifest(
         }
         edition
     } else {
-        let msrv_edition = if let Some(rust_version) = &rust_version {
+        let msrv_edition = if let Some(pkg_msrv) = &rust_version {
             Edition::ALL
                 .iter()
                 .filter(|e| {
                     e.first_version()
                         .map(|e| {
-                            let e = PartialVersion::from(e);
-                            e <= **rust_version
+                            let e = RustVersion::try_from(e).unwrap();
+                            e.is_compatible_with(pkg_msrv.as_partial())
                         })
                         .unwrap_or_default()
                 })
@@ -616,16 +615,20 @@ pub fn to_real_manifest(
         let default_edition = Edition::default();
         let latest_edition = Edition::LATEST_STABLE;
 
-        let tip = if msrv_edition == default_edition {
-            String::new()
-        } else if msrv_edition == latest_edition {
-            format!(" while the latest is {latest_edition}")
-        } else {
-            format!(" while {msrv_edition} is compatible with `rust-version`")
-        };
-        warnings.push(format!(
-            "no edition set: defaulting to the {default_edition} edition{tip}",
-        ));
+        // We're trying to help the user who might assume they are using a new edition,
+        // so if they can't use a new edition, don't bother to tell them to set it.
+        // This also avoids having to worry about whether `package.edition` is compatible with
+        // their MSRV.
+        if msrv_edition != default_edition {
+            let tip = if msrv_edition == latest_edition {
+                format!(" while the latest is {latest_edition}")
+            } else {
+                format!(" while {msrv_edition} is compatible with `rust-version`")
+            };
+            warnings.push(format!(
+                "no edition set: defaulting to the {default_edition} edition{tip}",
+            ));
+        }
         default_edition
     };
     // Add these lines if start a new unstable edition.
@@ -718,6 +721,7 @@ pub fn to_real_manifest(
         root: package_root,
     };
 
+    #[tracing::instrument(skip(manifest_ctx, new_deps, workspace_config, inherit_cell))]
     fn process_dependencies(
         manifest_ctx: &mut ManifestContext<'_, '_>,
         new_deps: Option<&BTreeMap<manifest::PackageName, manifest::InheritableDependency>>,
@@ -772,7 +776,7 @@ pub fn to_real_manifest(
                         {
                             d.public = None;
                             manifest_ctx.warnings.push(format!(
-                            "Ignoring `public` on dependency {name}.  Pass `-Zpublic-dependency` to enable support for it", name = &dep.name_in_toml()
+                            "ignoring `public` on dependency {name}, pass `-Zpublic-dependency` to enable support for it", name = &dep.name_in_toml()
                         ))
                         }
                     } else {
@@ -1526,6 +1530,7 @@ fn default_readme_from_package_root(package_root: &Path) -> Option<String> {
 
 /// Checks a list of build targets, and ensures the target names are unique within a vector.
 /// If not, the name of the offending build target is returned.
+#[tracing::instrument(skip_all)]
 fn unique_build_targets(
     targets: &[Target],
     package_root: &Path,
@@ -2054,11 +2059,14 @@ fn detailed_dep_to_dependency<P: ResolveToPath + Clone>(
         }
 
         if dep.kind() != DepKind::Normal {
+            let hint = format!(
+                "'public' specifier can only be used on regular dependencies, not {}",
+                dep.kind().kind_table(),
+            );
             match (with_public_feature, with_z_public) {
-                (true, _) => bail!("'public' specifier can only be used on regular dependencies, not {:?} dependencies", dep.kind()),
-                (_, true) => bail!("'public' specifier can only be used on regular dependencies, not {:?} dependencies", dep.kind()),
+                (true, _) | (_, true) => bail!(hint),
                 // If public feature isn't enabled in nightly, we instead warn that.
-                (false, false) =>  manifest_ctx.warnings.push(format!("'public' specifier can only be used on regular dependencies, not {:?} dependencies", dep.kind())),
+                (false, false) => manifest_ctx.warnings.push(hint),
             }
         } else {
             dep.set_public(p);

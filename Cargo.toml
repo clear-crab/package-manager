@@ -67,14 +67,14 @@ libloading = "0.8.1"
 memchr = "2.7.1"
 miow = "0.6.0"
 opener = "0.6.1"
-openssl = "0.10.64"
+openssl = "0.10.57"
 os_info = "3.7.0"
 pasetors = { version = "0.6.8", features = ["v3", "paserk", "std", "serde"] }
 pathdiff = "0.2"
 percent-encoding = "2.3"
 pkg-config = "0.3.30"
 proptest = "1.4.0"
-pulldown-cmark = { version = "0.9.3", default-features = false }
+pulldown-cmark = { version = "0.10.0", default-features = false, features = ["html"] }
 rand = "0.8.5"
 regex = "1.10.3"
 rusqlite = { version = "0.31.0", features = ["bundled"] }
@@ -99,6 +99,7 @@ time = { version = "0.3", features = ["parsing", "formatting", "serde"] }
 toml = "0.8.10"
 toml_edit = { version = "0.22.6", features = ["serde"] }
 tracing = "0.1.40" # be compatible with rustc_log: https://github.com/rust-lang/rust/blob/e51e98dde6a/compiler/rustc_log/Cargo.toml#L9
+tracing-chrome = "0.7.1"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 unicase = "2.7.0"
 unicode-width = "0.1.11"
@@ -204,6 +205,9 @@ unicode-width.workspace = true
 url.workspace = true
 walkdir.workspace = true
 
+[target.'cfg(target_has_atomic = "64")'.dependencies]
+tracing-chrome.workspace = true
+
 [target.'cfg(target_os = "linux")'.dependencies]
 cargo-credential-libsecret.workspace = true
 
@@ -229,6 +233,7 @@ features = [
 ]
 
 [dev-dependencies]
+annotate-snippets = { workspace = true, features = ["testing-colors"] }
 cargo-test-macro.workspace = true
 cargo-test-support.workspace = true
 same-file.workspace = true

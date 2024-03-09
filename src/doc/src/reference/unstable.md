@@ -294,9 +294,23 @@ performs the same actions as a regular `build.rs` script would perform.
 
 The 'public-dependency' feature allows marking dependencies as 'public'
 or 'private'. When this feature is enabled, additional information is passed to rustc to allow
-the 'exported_private_dependencies' lint to function properly.
+the [exported_private_dependencies](../../rustc/lints/listing/warn-by-default.html#exported-private-dependencies) lint to function properly.
 
-This requires the appropriate key to be set in `cargo-features`:
+To enable this feature, you can either use `-Zpublic-dependency`
+
+```sh
+cargo +nightly run -Zpublic-dependency
+```
+
+or `[unstable]` table, for example,
+
+```toml
+# .cargo/config.toml
+[unstable]
+public-dependency = true
+```
+
+`public-dependency` could also be enabled in `cargo-features`, **though this is deprecated and will be removed soon**.
 
 ```toml
 cargo-features = ["public-dependency"]
@@ -1183,7 +1197,7 @@ codegen-backend = "cranelift"
 
 * Tracking Issue: [#11813](https://github.com/rust-lang/cargo/issues/11813)
 
-With the 'gitoxide' unstable feature, all or the specified git operations will be performed by 
+With the 'gitoxide' unstable feature, all or the specified git operations will be performed by
 the `gitoxide` crate instead of `git2`.
 
 While `-Zgitoxide` enables all currently implemented features, one can individually select git operations
@@ -1405,7 +1419,7 @@ But the paths to these separate files are sanitized.
 If `trim-paths` is not `none` or `false`, then the following paths are sanitized if they appear in a selected scope:
 
 1. Path to the source files of the standard and core library (sysroot) will begin with `/rustc/[rustc commit hash]`,
-   e.g. `/home/username/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/result.rs` -> 
+   e.g. `/home/username/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/result.rs` ->
    `/rustc/fe72845f7bb6a77b9e671e6a4f32fe714962cec4/library/core/src/result.rs`
 2. Path to the current package will be stripped, relatively to the current workspace root, e.g. `/home/username/crate/src/lib.rs` -> `src/lib.rs`.
 3. Path to dependency packages will be replaced with `[package name]-[version]`. E.g. `/home/username/deps/foo/src/lib.rs` -> `foo-0.1.0/src/lib.rs`
