@@ -215,7 +215,7 @@ pub struct GlobalContext {
     /// Cache of credentials from configuration or credential providers.
     /// Maps from url to credential value.
     credential_cache: LazyCell<RefCell<HashMap<CanonicalUrl, CredentialCacheValue>>>,
-    /// Cache of registry config from from the `[registries]` table.
+    /// Cache of registry config from the `[registries]` table.
     registry_config: LazyCell<RefCell<HashMap<SourceId, Option<RegistryConfig>>>>,
     /// Locks on the package and index caches.
     package_cache_lock: CacheLocker,
@@ -1049,6 +1049,9 @@ impl GlobalContext {
         if let Some(hyperlinks) = term.hyperlinks {
             self.shell().set_hyperlinks(hyperlinks)?;
         }
+        if let Some(unicode) = term.unicode {
+            self.shell().set_unicode(unicode)?;
+        }
 
         self.progress_config = term.progress.unwrap_or_default();
 
@@ -1365,9 +1368,9 @@ impl GlobalContext {
                 // We only want to allow "dotted key" (see https://toml.io/en/v1.0.0#keys)
                 // expressions followed by a value that's not an "inline table"
                 // (https://toml.io/en/v1.0.0#inline-table). Easiest way to check for that is to
-                // parse the value as a toml_edit::Document, and check that the (single)
+                // parse the value as a toml_edit::DocumentMut, and check that the (single)
                 // inner-most table is set via dotted keys.
-                let doc: toml_edit::Document = arg.parse().with_context(|| {
+                let doc: toml_edit::DocumentMut = arg.parse().with_context(|| {
                     format!("failed to parse value from --config argument `{arg}` as a dotted key expression")
                 })?;
                 fn non_empty(d: Option<&toml_edit::RawString>) -> bool {
@@ -2646,6 +2649,7 @@ pub struct TermConfig {
     pub quiet: Option<bool>,
     pub color: Option<String>,
     pub hyperlinks: Option<bool>,
+    pub unicode: Option<bool>,
     #[serde(default)]
     #[serde(deserialize_with = "progress_or_string")]
     pub progress: Option<ProgressConfig>,

@@ -9,19 +9,18 @@ use crate::AlreadyPrintedError;
 use anyhow::{anyhow, bail, Context as _};
 use cargo_platform::Platform;
 use cargo_util::paths;
-use cargo_util_schemas::manifest;
 use cargo_util_schemas::manifest::RustVersion;
+use cargo_util_schemas::manifest::{self, TomlManifest};
 use itertools::Itertools;
 use lazycell::LazyCell;
 use pathdiff::diff_paths;
-use tracing::{debug, trace};
 use url::Url;
 
 use crate::core::compiler::{CompileKind, CompileTarget};
 use crate::core::dependency::{Artifact, ArtifactTarget, DepKind};
-use crate::core::manifest::{ManifestMetadata, TargetSourcePath, Warnings};
+use crate::core::manifest::{ManifestMetadata, TargetSourcePath};
 use crate::core::resolver::ResolveBehavior;
-use crate::core::{find_workspace_root, resolve_relative_path, CliUnstable};
+use crate::core::{find_workspace_root, resolve_relative_path, CliUnstable, FeatureValue};
 use crate::core::{Dependency, Manifest, PackageId, Summary, Target};
 use crate::core::{Edition, EitherManifest, Feature, Features, VirtualManifest, Workspace};
 use crate::core::{GitReference, PackageIdSpec, SourceId, WorkspaceConfig, WorkspaceRootConfig};
@@ -48,36 +47,61 @@ pub fn read_manifest(
     path: &Path,
     source_id: SourceId,
     gctx: &GlobalContext,
-) -> CargoResult<(EitherManifest, Vec<PathBuf>)> {
-    trace!(
-        "read_manifest; path={}; source-id={}",
-        path.display(),
-        source_id
-    );
-    let mut contents = paths::read(path).map_err(|err| ManifestError::new(err, path.into()))?;
-    let embedded = is_embedded(path);
-    if embedded {
-        if !gctx.cli_unstable().script {
-            return Err(ManifestError::new(
-                anyhow::anyhow!("parsing `{}` requires `-Zscript`", path.display()),
-                path.into(),
-            ))?;
-        }
-        contents = embedded::expand_manifest(&contents, path, gctx)
-            .map_err(|err| ManifestError::new(err, path.into()))?;
-    }
+) -> CargoResult<EitherManifest> {
+    let contents =
+        read_toml_string(path, gctx).map_err(|err| ManifestError::new(err, path.into()))?;
+    let document =
+        parse_document(&contents).map_err(|e| emit_diagnostic(e.into(), &contents, path, gctx))?;
+    let toml = deserialize_toml(&document)
+        .map_err(|e| emit_diagnostic(e.into(), &contents, path, gctx))?;
 
-    read_manifest_from_str(&contents, path, embedded, source_id, gctx).map_err(|err| {
-        if err.is::<AlreadyPrintedError>() {
-            err
+    (|| {
+        if toml.package().is_some() {
+            to_real_manifest(contents, document, toml, source_id, path, gctx)
+                .map(EitherManifest::Real)
         } else {
-            ManifestError::new(
-                err.context(format!("failed to parse manifest at `{}`", path.display())),
-                path.into(),
-            )
-            .into()
+            to_virtual_manifest(toml, source_id, path, gctx).map(EitherManifest::Virtual)
         }
+    })()
+    .map_err(|err| {
+        ManifestError::new(
+            err.context(format!("failed to parse manifest at `{}`", path.display())),
+            path.into(),
+        )
+        .into()
     })
+}
+
+#[tracing::instrument(skip_all)]
+fn read_toml_string(path: &Path, gctx: &GlobalContext) -> CargoResult<String> {
+    let mut contents = paths::read(path)?;
+    if is_embedded(path) {
+        if !gctx.cli_unstable().script {
+            anyhow::bail!("parsing `{}` requires `-Zscript`", path.display());
+        }
+        contents = embedded::expand_manifest(&contents, path, gctx)?;
+    }
+    Ok(contents)
+}
+
+#[tracing::instrument(skip_all)]
+fn parse_document(contents: &str) -> Result<toml_edit::ImDocument<String>, toml_edit::de::Error> {
+    toml_edit::ImDocument::parse(contents.to_owned()).map_err(Into::into)
+}
+
+#[tracing::instrument(skip_all)]
+fn deserialize_toml(
+    document: &toml_edit::ImDocument<String>,
+) -> Result<manifest::TomlManifest, toml_edit::de::Error> {
+    let mut unused = BTreeSet::new();
+    let deserializer = toml_edit::de::Deserializer::from(document.clone());
+    let mut document: manifest::TomlManifest = serde_ignored::deserialize(deserializer, |path| {
+        let mut key = String::new();
+        stringify(&mut key, &path);
+        unused.insert(key);
+    })?;
+    document._unused_keys = unused;
+    Ok(document)
 }
 
 /// See also `bin/cargo/commands/run.rs`s `is_manifest_command`
@@ -88,144 +112,84 @@ pub fn is_embedded(path: &Path) -> bool {
         (ext.is_none() && path.is_file())
 }
 
-/// Parse an already-loaded `Cargo.toml` as a Cargo manifest.
-///
-/// This could result in a real or virtual manifest being returned.
-///
-/// A list of nested paths is also returned, one for each path dependency
-/// within the manifest. For virtual manifests, these paths can only
-/// come from patched or replaced dependencies. These paths are not
-/// canonicalized.
-fn read_manifest_from_str(
+fn emit_diagnostic(
+    e: toml_edit::de::Error,
     contents: &str,
     manifest_file: &Path,
-    embedded: bool,
-    source_id: SourceId,
     gctx: &GlobalContext,
-) -> CargoResult<(EitherManifest, Vec<PathBuf>)> {
-    let package_root = manifest_file.parent().unwrap();
-
-    let mut unused = BTreeSet::new();
-    let deserializer = toml::de::Deserializer::new(contents);
-    let manifest: manifest::TomlManifest = match serde_ignored::deserialize(deserializer, |path| {
-        let mut key = String::new();
-        stringify(&mut key, &path);
-        unused.insert(key);
-    }) {
-        Ok(manifest) => manifest,
-        Err(e) => {
-            let Some(span) = e.span() else {
-                return Err(e.into());
-            };
-
-            let (line_num, column) = translate_position(&contents, span.start);
-            let source_start = contents[0..span.start]
-                .rfind('\n')
-                .map(|s| s + 1)
-                .unwrap_or(0);
-            let source_end = contents[span.end.saturating_sub(1)..]
-                .find('\n')
-                .map(|s| s + span.end)
-                .unwrap_or(contents.len());
-            let source = &contents[source_start..source_end];
-            // Make sure we don't try to highlight past the end of the line,
-            // but also make sure we are highlighting at least one character
-            let highlight_end = (column + contents[span].chars().count())
-                .min(source.len())
-                .max(column + 1);
-            // Get the path to the manifest, relative to the cwd
-            let manifest_path = diff_paths(manifest_file, gctx.cwd())
-                .unwrap_or_else(|| manifest_file.to_path_buf())
-                .display()
-                .to_string();
-            let snippet = Snippet {
-                title: Some(Annotation {
-                    id: None,
-                    label: Some(e.message()),
-                    annotation_type: AnnotationType::Error,
-                }),
-                footer: vec![],
-                slices: vec![Slice {
-                    source: &source,
-                    line_start: line_num + 1,
-                    origin: Some(manifest_path.as_str()),
-                    annotations: vec![SourceAnnotation {
-                        range: (column, highlight_end),
-                        label: "",
-                        annotation_type: AnnotationType::Error,
-                    }],
-                    fold: false,
-                }],
-            };
-            let renderer = Renderer::styled();
-            writeln!(gctx.shell().err(), "{}", renderer.render(snippet))?;
-            return Err(AlreadyPrintedError::new(e.into()).into());
-        }
-    };
-    let add_unused = |warnings: &mut Warnings| {
-        for key in unused {
-            warnings.add_warning(format!("unused manifest key: {}", key));
-            if key == "profiles.debug" {
-                warnings.add_warning("use `[profile.dev]` to configure debug builds".to_string());
-            }
-        }
+) -> anyhow::Error {
+    let Some(span) = e.span() else {
+        return e.into();
     };
 
-    if let Some(deps) = manifest
-        .workspace
-        .as_ref()
-        .and_then(|ws| ws.dependencies.as_ref())
-    {
-        for (name, dep) in deps {
-            if dep.is_optional() {
-                bail!("{name} is optional, but workspace dependencies cannot be optional",);
-            }
-            if dep.is_public() {
-                bail!("{name} is public, but workspace dependencies cannot be public",);
-            }
-        }
+    let (line_num, column) = translate_position(&contents, span.start);
+    let source_start = contents[0..span.start]
+        .rfind('\n')
+        .map(|s| s + 1)
+        .unwrap_or(0);
+    let source_end = contents[span.end.saturating_sub(1)..]
+        .find('\n')
+        .map(|s| s + span.end)
+        .unwrap_or(contents.len());
+    let source = &contents[source_start..source_end];
+    // Make sure we don't try to highlight past the end of the line,
+    // but also make sure we are highlighting at least one character
+    let highlight_end = (column + contents[span].chars().count())
+        .min(source.len())
+        .max(column + 1);
+    // Get the path to the manifest, relative to the cwd
+    let manifest_path = diff_paths(manifest_file, gctx.cwd())
+        .unwrap_or_else(|| manifest_file.to_path_buf())
+        .display()
+        .to_string();
+    let snippet = Snippet {
+        title: Some(Annotation {
+            id: None,
+            label: Some(e.message()),
+            annotation_type: AnnotationType::Error,
+        }),
+        footer: vec![],
+        slices: vec![Slice {
+            source: &source,
+            line_start: line_num + 1,
+            origin: Some(manifest_path.as_str()),
+            annotations: vec![SourceAnnotation {
+                range: (column, highlight_end),
+                label: "",
+                annotation_type: AnnotationType::Error,
+            }],
+            fold: false,
+        }],
+    };
+    let renderer = Renderer::styled();
+    if let Err(err) = writeln!(gctx.shell().err(), "{}", renderer.render(snippet)) {
+        return err.into();
     }
-    return if manifest.project.is_some() || manifest.package.is_some() {
-        let (mut manifest, paths) =
-            to_real_manifest(manifest, embedded, source_id, package_root, gctx)?;
-        add_unused(manifest.warnings_mut());
-        if manifest.targets().iter().all(|t| t.is_custom_build()) {
-            bail!(
-                "no targets specified in the manifest\n\
-                 either src/lib.rs, src/main.rs, a [lib] section, or \
-                 [[bin]] section must be present"
-            )
-        }
-        Ok((EitherManifest::Real(manifest), paths))
-    } else {
-        let (mut m, paths) = to_virtual_manifest(manifest, source_id, package_root, gctx)?;
-        add_unused(m.warnings_mut());
-        Ok((EitherManifest::Virtual(m), paths))
-    };
+    return AlreadyPrintedError::new(e.into()).into();
+}
 
-    fn stringify(dst: &mut String, path: &serde_ignored::Path<'_>) {
-        use serde_ignored::Path;
+fn stringify(dst: &mut String, path: &serde_ignored::Path<'_>) {
+    use serde_ignored::Path;
 
-        match *path {
-            Path::Root => {}
-            Path::Seq { parent, index } => {
-                stringify(dst, parent);
-                if !dst.is_empty() {
-                    dst.push('.');
-                }
-                dst.push_str(&index.to_string());
+    match *path {
+        Path::Root => {}
+        Path::Seq { parent, index } => {
+            stringify(dst, parent);
+            if !dst.is_empty() {
+                dst.push('.');
             }
-            Path::Map { parent, ref key } => {
-                stringify(dst, parent);
-                if !dst.is_empty() {
-                    dst.push('.');
-                }
-                dst.push_str(key);
-            }
-            Path::Some { parent }
-            | Path::NewtypeVariant { parent }
-            | Path::NewtypeStruct { parent } => stringify(dst, parent),
+            dst.push_str(&index.to_string());
         }
+        Path::Map { parent, ref key } => {
+            stringify(dst, parent);
+            if !dst.is_empty() {
+                dst.push('.');
+            }
+            dst.push_str(key);
+        }
+        Path::Some { parent }
+        | Path::NewtypeVariant { parent }
+        | Path::NewtypeStruct { parent } => stringify(dst, parent),
     }
 }
 
@@ -238,6 +202,15 @@ fn warn_on_deprecated(new_path: &str, name: &str, kind: &str, warnings: &mut Vec
     ))
 }
 
+fn warn_on_unused(unused: &BTreeSet<String>, warnings: &mut Vec<String>) {
+    for key in unused {
+        warnings.push(format!("unused manifest key: {}", key));
+        if key == "profiles.debug" {
+            warnings.push("use `[profile.dev]` to configure debug builds".to_string());
+        }
+    }
+}
+
 /// Prepares the manifest for publishing.
 // - Path and git components of dependency specifications are removed.
 // - License path is updated to point within the package.
@@ -247,6 +220,16 @@ pub fn prepare_for_publish(
     package_root: &Path,
 ) -> CargoResult<manifest::TomlManifest> {
     let gctx = ws.gctx();
+
+    if me
+        .cargo_features
+        .iter()
+        .flat_map(|f| f.iter())
+        .any(|f| f == "open-namespaces")
+    {
+        anyhow::bail!("cannot publish with `open-namespaces`")
+    }
+
     let mut package = me.package().unwrap().clone();
     package.workspace = None;
     let current_resolver = package
@@ -316,7 +299,7 @@ pub fn prepare_for_publish(
         }
     }
     let all = |_d: &manifest::TomlDependency| true;
-    return Ok(manifest::TomlManifest {
+    let mut manifest = manifest::TomlManifest {
         package: Some(package),
         project: None,
         profile: me.profile.clone(),
@@ -366,7 +349,53 @@ pub fn prepare_for_publish(
         badges: me.badges.clone(),
         cargo_features: me.cargo_features.clone(),
         lints: me.lints.clone(),
-    });
+        _unused_keys: Default::default(),
+    };
+    strip_features(&mut manifest);
+    return Ok(manifest);
+
+    fn strip_features(manifest: &mut TomlManifest) {
+        fn insert_dep_name(
+            dep_name_set: &mut BTreeSet<manifest::PackageName>,
+            deps: Option<&BTreeMap<manifest::PackageName, manifest::InheritableDependency>>,
+        ) {
+            let Some(deps) = deps else {
+                return;
+            };
+            deps.iter().for_each(|(k, _v)| {
+                dep_name_set.insert(k.clone());
+            });
+        }
+        let mut dep_name_set = BTreeSet::new();
+        insert_dep_name(&mut dep_name_set, manifest.dependencies.as_ref());
+        insert_dep_name(&mut dep_name_set, manifest.dev_dependencies());
+        insert_dep_name(&mut dep_name_set, manifest.build_dependencies());
+        if let Some(target_map) = manifest.target.as_ref() {
+            target_map.iter().for_each(|(_k, v)| {
+                insert_dep_name(&mut dep_name_set, v.dependencies.as_ref());
+                insert_dep_name(&mut dep_name_set, v.dev_dependencies());
+                insert_dep_name(&mut dep_name_set, v.build_dependencies());
+            });
+        }
+        let features = manifest.features.as_mut();
+
+        let Some(features) = features else {
+            return;
+        };
+
+        features.values_mut().for_each(|feature_deps| {
+            feature_deps.retain(|feature_dep| {
+                let feature_value = FeatureValue::new(InternedString::new(feature_dep));
+                match feature_value {
+                    FeatureValue::Dep { dep_name } | FeatureValue::DepFeature { dep_name, .. } => {
+                        let k = &manifest::PackageName::new(dep_name.to_string()).unwrap();
+                        dep_name_set.contains(k)
+                    }
+                    _ => true,
+                }
+            });
+        });
+    }
 
     fn map_deps(
         gctx: &GlobalContext,
@@ -425,12 +454,13 @@ pub fn prepare_for_publish(
 
 #[tracing::instrument(skip_all)]
 pub fn to_real_manifest(
+    contents: String,
+    document: toml_edit::ImDocument<String>,
     me: manifest::TomlManifest,
-    embedded: bool,
     source_id: SourceId,
-    package_root: &Path,
+    manifest_file: &Path,
     gctx: &GlobalContext,
-) -> CargoResult<(Manifest, Vec<PathBuf>)> {
+) -> CargoResult<Manifest> {
     fn get_ws(
         gctx: &GlobalContext,
         resolved_path: &Path,
@@ -458,6 +488,8 @@ pub fn to_real_manifest(
         }
     }
 
+    let embedded = is_embedded(manifest_file);
+    let package_root = manifest_file.parent().unwrap();
     if !package_root.is_dir() {
         bail!(
             "package root '{}' is not a directory",
@@ -465,9 +497,25 @@ pub fn to_real_manifest(
         );
     };
 
-    let mut nested_paths = vec![];
+    if let Some(deps) = me
+        .workspace
+        .as_ref()
+        .and_then(|ws| ws.dependencies.as_ref())
+    {
+        for (name, dep) in deps {
+            if dep.is_optional() {
+                bail!("{name} is optional, but workspace dependencies cannot be optional",);
+            }
+            if dep.is_public() {
+                bail!("{name} is public, but workspace dependencies cannot be public",);
+            }
+        }
+    }
+
     let mut warnings = vec![];
     let mut errors = vec![];
+
+    warn_on_unused(&me._unused_keys, &mut warnings);
 
     // Parse features first so they will be available when parsing other parts of the TOML.
     let empty = Vec::new();
@@ -542,6 +590,9 @@ pub fn to_real_manifest(
     };
 
     let package_name = package.name.trim();
+    if package_name.contains(':') {
+        features.require(Feature::open_namespaces())?;
+    }
 
     let resolved_path = package_root.join("Cargo.toml");
 
@@ -677,8 +728,12 @@ pub fn to_real_manifest(
         &mut errors,
     )?;
 
-    if targets.is_empty() {
-        debug!("manifest has no build targets");
+    if targets.iter().all(|t| t.is_custom_build()) {
+        bail!(
+            "no targets specified in the manifest\n\
+                 either src/lib.rs, src/main.rs, a [lib] section, or \
+                 [[bin]] section must be present"
+        )
     }
 
     if let Err(conflict_targets) = unique_build_targets(&targets, package_root) {
@@ -713,7 +768,6 @@ pub fn to_real_manifest(
     let mut manifest_ctx = ManifestContext {
         deps: &mut deps,
         source_id,
-        nested_paths: &mut nested_paths,
         gctx,
         warnings: &mut warnings,
         features: &features,
@@ -1167,8 +1221,12 @@ pub fn to_real_manifest(
             workspace: false,
             lints,
         }),
+        _unused_keys: Default::default(),
     };
     let mut manifest = Manifest::new(
+        Rc::new(contents),
+        Rc::new(document),
+        Rc::new(resolved_toml),
         summary,
         default_kind,
         forced_kind,
@@ -1188,7 +1246,6 @@ pub fn to_real_manifest(
         rust_version,
         package.im_a_teapot,
         package.default_run.clone(),
-        Rc::new(resolved_toml),
         package.metabuild.clone().map(|sov| sov.0),
         resolve_behavior,
         rustflags,
@@ -1214,31 +1271,48 @@ pub fn to_real_manifest(
 
     manifest.feature_gate()?;
 
-    Ok((manifest, nested_paths))
+    Ok(manifest)
 }
 
 fn to_virtual_manifest(
     me: manifest::TomlManifest,
     source_id: SourceId,
-    root: &Path,
+    manifest_file: &Path,
     gctx: &GlobalContext,
-) -> CargoResult<(VirtualManifest, Vec<PathBuf>)> {
+) -> CargoResult<VirtualManifest> {
+    let root = manifest_file.parent().unwrap();
+
+    if let Some(deps) = me
+        .workspace
+        .as_ref()
+        .and_then(|ws| ws.dependencies.as_ref())
+    {
+        for (name, dep) in deps {
+            if dep.is_optional() {
+                bail!("{name} is optional, but workspace dependencies cannot be optional",);
+            }
+            if dep.is_public() {
+                bail!("{name} is public, but workspace dependencies cannot be public",);
+            }
+        }
+    }
+
     for field in me.requires_package() {
         bail!("this virtual manifest specifies a `{field}` section, which is not allowed");
     }
 
-    let mut nested_paths = Vec::new();
     let mut warnings = Vec::new();
     let mut deps = Vec::new();
     let empty = Vec::new();
     let cargo_features = me.cargo_features.as_ref().unwrap_or(&empty);
     let features = Features::new(cargo_features, gctx, &mut warnings, source_id.is_path())?;
 
+    warn_on_unused(&me._unused_keys, &mut warnings);
+
     let (replace, patch) = {
         let mut manifest_ctx = ManifestContext {
             deps: &mut deps,
             source_id,
-            nested_paths: &mut nested_paths,
             gctx,
             warnings: &mut warnings,
             platform: None,
@@ -1287,17 +1361,19 @@ fn to_virtual_manifest(
             bail!("virtual manifests must be configured with [workspace]");
         }
     };
-    Ok((
-        VirtualManifest::new(
-            replace,
-            patch,
-            workspace_config,
-            profiles,
-            features,
-            resolve_behavior,
-        ),
-        nested_paths,
-    ))
+    let mut manifest = VirtualManifest::new(
+        replace,
+        patch,
+        workspace_config,
+        profiles,
+        features,
+        resolve_behavior,
+    );
+    for warning in warnings {
+        manifest.warnings_mut().add_warning(warning);
+    }
+
+    Ok(manifest)
 }
 
 fn replace(
@@ -1388,7 +1464,6 @@ fn patch(
 struct ManifestContext<'a, 'b> {
     deps: &'a mut Vec<Dependency>,
     source_id: SourceId,
-    nested_paths: &'a mut Vec<PathBuf>,
     gctx: &'b GlobalContext,
     warnings: &'a mut Vec<String>,
     platform: Option<Platform>,
@@ -1484,7 +1559,7 @@ fn inheritable_from_path(
     };
 
     let source_id = SourceId::for_path(workspace_path_root)?;
-    let (man, _) = read_manifest(&workspace_path, source_id, gctx)?;
+    let man = read_manifest(&workspace_path, source_id, gctx)?;
     match man.workspace_config() {
         WorkspaceConfig::Root(root) => {
             gctx.ws_roots
@@ -1806,7 +1881,6 @@ pub(crate) fn to_dependency<P: ResolveToPath + Clone>(
     dep: &manifest::TomlDependency<P>,
     name: &str,
     source_id: SourceId,
-    nested_paths: &mut Vec<PathBuf>,
     gctx: &GlobalContext,
     warnings: &mut Vec<String>,
     platform: Option<Platform>,
@@ -1820,7 +1894,6 @@ pub(crate) fn to_dependency<P: ResolveToPath + Clone>(
         &mut ManifestContext {
             deps: &mut Vec::new(),
             source_id,
-            nested_paths,
             gctx,
             warnings,
             platform,
@@ -1989,7 +2062,6 @@ fn detailed_dep_to_dependency<P: ResolveToPath + Clone>(
         }
         (None, Some(path), _, _) => {
             let path = path.resolve(manifest_ctx.gctx);
-            manifest_ctx.nested_paths.push(path.clone());
             // If the source ID for the package we're parsing is a path
             // source, then we normalize the path here to get rid of
             // components like `..`.
