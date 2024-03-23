@@ -1622,7 +1622,7 @@ fn workspace_metadata_with_dependencies_and_resolve() {
                       "kind": [
                         "lib"
                       ],
-                      "name": "non-artifact",
+                      "name": "non_artifact",
                       "src_path": "[..]/foo/non-artifact/src/lib.rs",
                       "test": true
                     }
@@ -1915,6 +1915,7 @@ fn cargo_metadata_with_invalid_artifact_deps() {
         .with_stderr(
             "\
 [WARNING] please specify `--format-version` flag explicitly to avoid compatibility problems
+[LOCKING] 2 packages
 [ERROR] dependency `artifact` in package `foo` requires a `bin:notfound` artifact to be present.",
         )
         .run();
@@ -1945,6 +1946,7 @@ fn cargo_metadata_with_invalid_duplicate_renamed_deps() {
         .with_stderr(
             "\
 [WARNING] please specify `--format-version` flag explicitly to avoid compatibility problems
+[LOCKING] 2 packages
 [ERROR] the crate `foo v0.5.0 ([..])` depends on crate `bar v0.5.0 ([..])` multiple times with different names",
         )
         .run();
@@ -3114,7 +3116,7 @@ fn filter_platform() {
           "crate_types": [
             "lib"
           ],
-          "name": "alt-dep",
+          "name": "alt_dep",
           "src_path": "[..]/alt-dep-0.0.1/src/lib.rs",
           "edition": "2015",
           "test": true,
@@ -3158,7 +3160,7 @@ fn filter_platform() {
           "crate_types": [
             "lib"
           ],
-          "name": "cfg-dep",
+          "name": "cfg_dep",
           "src_path": "[..]/cfg-dep-0.0.1/src/lib.rs",
           "edition": "2015",
           "test": true,
@@ -3202,7 +3204,7 @@ fn filter_platform() {
           "crate_types": [
             "lib"
           ],
-          "name": "host-dep",
+          "name": "host_dep",
           "src_path": "[..]/host-dep-0.0.1/src/lib.rs",
           "edition": "2015",
           "test": true,
@@ -3246,7 +3248,7 @@ fn filter_platform() {
           "crate_types": [
             "lib"
           ],
-          "name": "normal-dep",
+          "name": "normal_dep",
           "src_path": "[..]/normal-dep-0.0.1/src/lib.rs",
           "edition": "2015",
           "test": true,
@@ -3396,6 +3398,7 @@ fn filter_platform() {
             "\
 [UPDATING] [..]
 [WARNING] please specify `--format-version` flag explicitly to avoid compatibility problems
+[LOCKING] 5 packages
 [DOWNLOADING] crates ...
 [DOWNLOADED] normal-dep v0.0.1 [..]
 [DOWNLOADED] host-dep v0.0.1 [..]
