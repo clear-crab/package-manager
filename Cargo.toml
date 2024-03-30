@@ -11,7 +11,7 @@ exclude = [
 ]
 
 [workspace.package]
-rust-version = "1.73"  # MSRV:3
+rust-version = "1.75"  # MSRV:3
 edition = "2021"
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/rust-lang/cargo"
@@ -30,8 +30,8 @@ cargo-credential-libsecret = { version = "0.4.2", path = "credential/cargo-crede
 cargo-credential-macos-keychain = { version = "0.4.2", path = "credential/cargo-credential-macos-keychain" }
 cargo-credential-wincred = { version = "0.4.2", path = "credential/cargo-credential-wincred" }
 cargo-platform = { path = "crates/cargo-platform", version = "0.1.5" }
-cargo-test-macro = { path = "crates/cargo-test-macro" }
-cargo-test-support = { path = "crates/cargo-test-support" }
+cargo-test-macro = { version = "0.2.0", path = "crates/cargo-test-macro" }
+cargo-test-support = { version = "0.2.0", path = "crates/cargo-test-support" }
 cargo-util = { version = "0.2.9", path = "crates/cargo-util" }
 cargo-util-schemas = { version = "0.3.0", path = "crates/cargo-util-schemas" }
 cargo_metadata = "0.18.1"
@@ -46,8 +46,7 @@ filetime = "0.2.23"
 flate2 = { version = "1.0.28", default-features = false, features = ["zlib"] }
 git2 = "0.18.2"
 git2-curl = "0.19.0"
-gix = { version = "0.58.0", default-features = false, features = ["blocking-http-transport-curl", "progress-tree", "revision"] }
-gix-features-for-configuration-only = { version = "0.38.0", package = "gix-features", features = [ "parallel" ] }
+gix = { version = "0.61.0", default-features = false, features = ["blocking-http-transport-curl", "progress-tree", "revision", "parallel", "dirwalk"] }
 glob = "0.3.1"
 handlebars = { version = "5.1.0", features = ["dir_source"] }
 hex = "0.4.3"
@@ -97,7 +96,7 @@ tempfile = "3.10.1"
 thiserror = "1.0.57"
 time = { version = "0.3", features = ["parsing", "formatting", "serde"] }
 toml = "0.8.10"
-toml_edit = { version = "0.22.7", features = ["serde"] }
+toml_edit = { version = "0.22.9", features = ["serde"] }
 tracing = "0.1.40" # be compatible with rustc_log: https://github.com/rust-lang/rust/blob/e51e98dde6a/compiler/rustc_log/Cargo.toml#L9
 tracing-chrome = "0.7.1"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
@@ -128,7 +127,7 @@ name = "cargo"
 version = "0.80.0"
 edition.workspace = true
 license.workspace = true
-rust-version = "1.76.0"  # MSRV:1
+rust-version = "1.77"  # MSRV:1
 homepage = "https://doc.rust-lang.org/cargo/index.html"
 repository.workspace = true
 documentation = "https://docs.rs/cargo"
@@ -161,7 +160,6 @@ flate2.workspace = true
 git2.workspace = true
 git2-curl.workspace = true
 gix.workspace = true
-gix-features-for-configuration-only.workspace = true
 glob.workspace = true
 hex.workspace = true
 hmac.workspace = true

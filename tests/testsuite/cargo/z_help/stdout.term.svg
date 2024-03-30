@@ -37,27 +37,27 @@
 </tspan>
     <tspan x="10px" y="172px"><tspan>    </tspan><tspan class="fg-cyan bold">-Z build-std-features     </tspan><tspan>  Configure features enabled for the standard library itself when building the standard library</tspan>
 </tspan>
-    <tspan x="10px" y="190px"><tspan>    </tspan><tspan class="fg-cyan bold">-Z check-cfg              </tspan><tspan>  Enable compile-time checking of `cfg` names/values/features</tspan>
+    <tspan x="10px" y="190px"><tspan>    </tspan><tspan class="fg-cyan bold">-Z cargo-lints            </tspan><tspan>  Enable the `[lints.cargo]` table</tspan>
 </tspan>
-    <tspan x="10px" y="208px"><tspan>    </tspan><tspan class="fg-cyan bold">-Z codegen-backend        </tspan><tspan>  Enable the `codegen-backend` option in profiles in .cargo/config.toml file</tspan>
+    <tspan x="10px" y="208px"><tspan>    </tspan><tspan class="fg-cyan bold">-Z check-cfg              </tspan><tspan>  Enable compile-time checking of `cfg` names/values/features</tspan>
 </tspan>
-    <tspan x="10px" y="226px"><tspan>    </tspan><tspan class="fg-cyan bold">-Z config-include         </tspan><tspan>  Enable the `include` key in config files</tspan>
+    <tspan x="10px" y="226px"><tspan>    </tspan><tspan class="fg-cyan bold">-Z codegen-backend        </tspan><tspan>  Enable the `codegen-backend` option in profiles in .cargo/config.toml file</tspan>
 </tspan>
-    <tspan x="10px" y="244px"><tspan>    </tspan><tspan class="fg-cyan bold">-Z direct-minimal-versions</tspan><tspan>  Resolve minimal dependency versions instead of maximum (direct dependencies only)</tspan>
+    <tspan x="10px" y="244px"><tspan>    </tspan><tspan class="fg-cyan bold">-Z config-include         </tspan><tspan>  Enable the `include` key in config files</tspan>
 </tspan>
-    <tspan x="10px" y="262px"><tspan>    </tspan><tspan class="fg-cyan bold">-Z doctest-xcompile       </tspan><tspan>  Compile and run doctests for non-host target using runner config</tspan>
+    <tspan x="10px" y="262px"><tspan>    </tspan><tspan class="fg-cyan bold">-Z direct-minimal-versions</tspan><tspan>  Resolve minimal dependency versions instead of maximum (direct dependencies only)</tspan>
 </tspan>
-    <tspan x="10px" y="280px"><tspan>    </tspan><tspan class="fg-cyan bold">-Z dual-proc-macros       </tspan><tspan>  Build proc-macros for both the host and the target</tspan>
+    <tspan x="10px" y="280px"><tspan>    </tspan><tspan class="fg-cyan bold">-Z doctest-xcompile       </tspan><tspan>  Compile and run doctests for non-host target using runner config</tspan>
 </tspan>
-    <tspan x="10px" y="298px"><tspan>    </tspan><tspan class="fg-cyan bold">-Z gc                     </tspan><tspan>  Track cache usage and "garbage collect" unused files</tspan>
+    <tspan x="10px" y="298px"><tspan>    </tspan><tspan class="fg-cyan bold">-Z dual-proc-macros       </tspan><tspan>  Build proc-macros for both the host and the target</tspan>
 </tspan>
-    <tspan x="10px" y="316px"><tspan>    </tspan><tspan class="fg-cyan bold">-Z git                    </tspan><tspan>  Enable support for shallow git fetch operations</tspan>
+    <tspan x="10px" y="316px"><tspan>    </tspan><tspan class="fg-cyan bold">-Z gc                     </tspan><tspan>  Track cache usage and "garbage collect" unused files</tspan>
 </tspan>
-    <tspan x="10px" y="334px"><tspan>    </tspan><tspan class="fg-cyan bold">-Z gitoxide               </tspan><tspan>  Use gitoxide for the given git interactions, or all of them if no argument is given</tspan>
+    <tspan x="10px" y="334px"><tspan>    </tspan><tspan class="fg-cyan bold">-Z git                    </tspan><tspan>  Enable support for shallow git fetch operations</tspan>
 </tspan>
-    <tspan x="10px" y="352px"><tspan>    </tspan><tspan class="fg-cyan bold">-Z host-config            </tspan><tspan>  Enable the `[host]` section in the .cargo/config.toml file</tspan>
+    <tspan x="10px" y="352px"><tspan>    </tspan><tspan class="fg-cyan bold">-Z gitoxide               </tspan><tspan>  Use gitoxide for the given git interactions, or all of them if no argument is given</tspan>
 </tspan>
-    <tspan x="10px" y="370px"><tspan>    </tspan><tspan class="fg-cyan bold">-Z lints                  </tspan><tspan>  Pass `[lints]` to the linting tools</tspan>
+    <tspan x="10px" y="370px"><tspan>    </tspan><tspan class="fg-cyan bold">-Z host-config            </tspan><tspan>  Enable the `[host]` section in the .cargo/config.toml file</tspan>
 </tspan>
     <tspan x="10px" y="388px"><tspan>    </tspan><tspan class="fg-cyan bold">-Z minimal-versions       </tspan><tspan>  Resolve minimal dependency versions instead of maximum</tspan>
 </tspan>

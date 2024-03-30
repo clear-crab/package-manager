@@ -750,6 +750,7 @@ unstable_cli_options!(
     #[serde(deserialize_with = "deserialize_build_std")]
     build_std: Option<Vec<String>>  = ("Enable Cargo to compile the standard library itself as part of a crate graph compilation"),
     build_std_features: Option<Vec<String>>  = ("Configure features enabled for the standard library itself when building the standard library"),
+    cargo_lints: bool = ("Enable the `[lints.cargo]` table"),
     check_cfg: bool = ("Enable compile-time checking of `cfg` names/values/features"),
     codegen_backend: bool = ("Enable the `codegen-backend` option in profiles in .cargo/config.toml file"),
     config_include: bool = ("Enable the `include` key in config files"),
@@ -761,7 +762,6 @@ unstable_cli_options!(
     git: Option<GitFeatures> = ("Enable support for shallow git fetch operations"),
     gitoxide: Option<GitoxideFeatures> = ("Use gitoxide for the given git interactions, or all of them if no argument is given"),
     host_config: bool = ("Enable the `[host]` section in the .cargo/config.toml file"),
-    lints: bool = ("Pass `[lints]` to the linting tools"),
     minimal_versions: bool = ("Resolve minimal dependency versions instead of maximum"),
     msrv_policy: bool = ("Enable rust-version aware policy within cargo"),
     mtime_on_use: bool = ("Configure Cargo to update the mtime of used files"),
@@ -852,6 +852,8 @@ const STABILIZED_CREDENTIAL_PROCESS: &str =
 const STABILIZED_REGISTRY_AUTH: &str =
     "Authenticated registries are available if a credential provider is configured.";
 
+const STABILIZED_LINTS: &str = "The `[lints]` table is now always available.";
+
 fn deserialize_build_std<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -907,6 +909,8 @@ fn parse_git(it: impl Iterator<Item = impl AsRef<str>>) -> CargoResult<Option<Gi
 pub struct GitoxideFeatures {
     /// All fetches are done with `gitoxide`, which includes git dependencies as well as the crates index.
     pub fetch: bool,
+    /// Listing of files suitable for packaging with Git support.
+    pub list_files: bool,
     /// Checkout git dependencies using `gitoxide` (submodules are still handled by git2 ATM, and filters
     /// like linefeed conversions are unsupported).
     pub checkout: bool,
@@ -920,6 +924,7 @@ impl GitoxideFeatures {
     fn all() -> Self {
         GitoxideFeatures {
             fetch: true,
+            list_files: true,
             checkout: true,
             internal_use_git2: false,
         }
@@ -930,6 +935,7 @@ impl GitoxideFeatures {
     fn safe() -> Self {
         GitoxideFeatures {
             fetch: true,
+            list_files: true,
             checkout: true,
             internal_use_git2: false,
         }
@@ -942,6 +948,7 @@ fn parse_gitoxide(
     let mut out = GitoxideFeatures::default();
     let GitoxideFeatures {
         fetch,
+        list_files,
         checkout,
         internal_use_git2,
     } = &mut out;
@@ -950,9 +957,10 @@ fn parse_gitoxide(
         match e.as_ref() {
             "fetch" => *fetch = true,
             "checkout" => *checkout = true,
+            "list-files" => *list_files = true,
             "internal-use-git2" => *internal_use_git2 = true,
             _ => {
-                bail!("unstable 'gitoxide' only takes `fetch` and 'checkout' as valid input, for shallow fetches see `-Zgit=shallow-index,shallow-deps`")
+                bail!("unstable 'gitoxide' only takes `fetch`, `list-files` and 'checkout' as valid input, for shallow fetches see `-Zgit=shallow-index,shallow-deps`")
             }
         }
     }
@@ -1104,6 +1112,7 @@ impl CliUnstable {
             "terminal-width" => stabilized_warn(k, "1.68", STABILIZED_TERMINAL_WIDTH),
             "doctest-in-workspace" => stabilized_warn(k, "1.72", STABILIZED_DOCTEST_IN_WORKSPACE),
             "credential-process" => stabilized_warn(k, "1.74", STABILIZED_CREDENTIAL_PROCESS),
+            "lints" => stabilized_warn(k, "1.74", STABILIZED_LINTS),
             "registry-auth" => stabilized_warn(k, "1.74", STABILIZED_REGISTRY_AUTH),
 
             // Unstable features
@@ -1117,6 +1126,7 @@ impl CliUnstable {
                 self.build_std = Some(crate::core::compiler::standard_lib::parse_unstable_flag(v))
             }
             "build-std-features" => self.build_std_features = Some(parse_features(v)),
+            "cargo-lints" => self.cargo_lints = parse_empty(k, v)?,
             "check-cfg" => {
                 self.check_cfg = parse_empty(k, v)?;
             }
@@ -1139,7 +1149,6 @@ impl CliUnstable {
                 )?
             }
             "host-config" => self.host_config = parse_empty(k, v)?,
-            "lints" => self.lints = parse_empty(k, v)?,
             "next-lockfile-bump" => self.next_lockfile_bump = parse_empty(k, v)?,
             "minimal-versions" => self.minimal_versions = parse_empty(k, v)?,
             "msrv-policy" => self.msrv_policy = parse_empty(k, v)?,
