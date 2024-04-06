@@ -16,7 +16,7 @@ use filetime::FileTime;
 use gix::bstr::{BString, ByteVec};
 use gix::dir::entry::Status;
 use ignore::gitignore::GitignoreBuilder;
-use tracing::{trace, warn};
+use tracing::{debug, trace, warn};
 use walkdir::WalkDir;
 
 /// A source represents one or multiple packages gathering from a given root
@@ -143,13 +143,14 @@ impl<'gctx> PathSource<'gctx> {
         let git_repo = if no_include_option {
             if self
                 .gctx
-                .cli_unstable()
-                .gitoxide
-                .map_or(false, |features| features.list_files)
+                .get_env("__CARGO_GITOXIDE_DISABLE_LIST_FILES")
+                .ok()
+                .as_deref()
+                == Some("1")
             {
-                self.discover_gix_repo(root)?.map(Git2OrGixRepository::Gix)
-            } else {
                 self.discover_git_repo(root)?.map(Git2OrGixRepository::Git2)
+            } else {
+                self.discover_gix_repo(root)?.map(Git2OrGixRepository::Gix)
             }
         } else {
             None
@@ -243,11 +244,9 @@ impl<'gctx> PathSource<'gctx> {
         let repo_relative_path = match paths::strip_prefix_canonical(root, repo_root) {
             Ok(p) => p,
             Err(e) => {
-                tracing::warn!(
+                warn!(
                     "cannot determine if path `{:?}` is in git repo `{:?}`: {:?}",
-                    root,
-                    repo_root,
-                    e
+                    root, repo_root, e
                 );
                 return Ok(None);
             }
@@ -287,11 +286,9 @@ impl<'gctx> PathSource<'gctx> {
         let repo_relative_path = match paths::strip_prefix_canonical(root, repo_root) {
             Ok(p) => p,
             Err(e) => {
-                tracing::warn!(
+                warn!(
                     "cannot determine if path `{:?}` is in git repo `{:?}`: {:?}",
-                    root,
-                    repo_root,
-                    e
+                    root, repo_root, e
                 );
                 return Ok(None);
             }
@@ -318,7 +315,7 @@ impl<'gctx> PathSource<'gctx> {
         repo: &git2::Repository,
         filter: &dyn Fn(&Path, bool) -> bool,
     ) -> CargoResult<Vec<PathBuf>> {
-        warn!("list_files_git {}", pkg.package_id());
+        debug!("list_files_git {}", pkg.package_id());
         let index = repo.index()?;
         let root = repo
             .workdir()
@@ -406,7 +403,7 @@ impl<'gctx> PathSource<'gctx> {
                 Some("Cargo.toml") => {
                     let path = file_path.parent().unwrap();
                     if path != pkg_path {
-                        warn!("subpackage found: {}", path.display());
+                        debug!("subpackage found: {}", path.display());
                         ret.retain(|p| !p.starts_with(path));
                         subpackages_found.push(path.to_path_buf());
                         continue;
@@ -426,7 +423,7 @@ impl<'gctx> PathSource<'gctx> {
             // symlink points to a directory.
             let is_dir = is_dir.unwrap_or_else(|| file_path.is_dir());
             if is_dir {
-                warn!("  found directory {}", file_path.display());
+                trace!("  found directory {}", file_path.display());
                 match git2::Repository::open(&file_path) {
                     Ok(repo) => {
                         let files = self.list_files_git(pkg, &repo, filter)?;
@@ -439,7 +436,7 @@ impl<'gctx> PathSource<'gctx> {
             } else if filter(&file_path, is_dir) {
                 assert!(!is_dir);
                 // We found a file!
-                warn!("  found {}", file_path.display());
+                trace!("  found {}", file_path.display());
                 ret.push(file_path);
             }
         }
@@ -477,7 +474,7 @@ impl<'gctx> PathSource<'gctx> {
         repo: &gix::Repository,
         filter: &dyn Fn(&Path, bool) -> bool,
     ) -> CargoResult<Vec<PathBuf>> {
-        warn!("list_files_gix {}", pkg.package_id());
+        debug!("list_files_gix {}", pkg.package_id());
         let options = repo
             .dirwalk_options()?
             .emit_untracked(gix::dir::walk::EmissionMode::Matching)
@@ -558,7 +555,7 @@ impl<'gctx> PathSource<'gctx> {
                 // our own `Cargo.toml`, we keep going.
                 let path = file_path.parent().unwrap();
                 if path != pkg_path {
-                    warn!("subpackage found: {}", path.display());
+                    debug!("subpackage found: {}", path.display());
                     files.retain(|p| !p.starts_with(path));
                     subpackages_found.push(path.to_path_buf());
                     continue;
@@ -594,7 +591,7 @@ impl<'gctx> PathSource<'gctx> {
                 }
             } else if (filter)(&file_path, is_dir) {
                 assert!(!is_dir);
-                warn!("  found {}", file_path.display());
+                trace!("  found {}", file_path.display());
                 files.push(file_path);
             }
         }

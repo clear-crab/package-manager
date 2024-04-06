@@ -151,7 +151,7 @@ pub type AllowFeatures = BTreeSet<String>;
 /// - Update [`CLI_VALUES`] to include the new edition.
 /// - Set [`LATEST_UNSTABLE`] to Some with the new edition.
 /// - Add an unstable feature to the [`features!`] macro invocation below for the new edition.
-/// - Gate on that new feature in [`toml::to_real_manifest`].
+/// - Gate on that new feature in [`toml`].
 /// - Update the shell completion files.
 /// - Update any failing tests (hopefully there are very few).
 /// - Update unstable.md to add a new section for this new edition (see [this example]).
@@ -178,7 +178,7 @@ pub type AllowFeatures = BTreeSet<String>;
 /// [`LATEST_STABLE`]: Edition::LATEST_STABLE
 /// [this example]: https://github.com/rust-lang/cargo/blob/3ebb5f15a940810f250b68821149387af583a79e/src/doc/src/reference/unstable.md?plain=1#L1238-L1264
 /// [`is_stable`]: Edition::is_stable
-/// [`toml::to_real_manifest`]: crate::util::toml::to_real_manifest
+/// [`toml`]: crate::util::toml
 /// [`features!`]: macro.features.html
 #[derive(
     Default, Clone, Copy, Debug, Hash, PartialOrd, Ord, Eq, PartialEq, Serialize, Deserialize,
@@ -377,7 +377,7 @@ macro_rules! features {
             activated: Vec<String>,
             /// Whether is allowed to use any unstable features.
             nightly_features_allowed: bool,
-            /// Whether the source mainfest is from a local package.
+            /// Whether the source manifest is from a local package.
             is_local: bool,
         }
 
@@ -768,7 +768,6 @@ unstable_cli_options!(
     next_lockfile_bump: bool,
     no_index_update: bool = ("Do not update the registry index even if the cache is outdated"),
     panic_abort_tests: bool = ("Enable support to run tests with -Cpanic=abort"),
-    precise_pre_release: bool = ("Enable pre-release versions to be selected with `update --precise`"),
     profile_rustflags: bool = ("Enable the `rustflags` option in profiles in .cargo/config.toml file"),
     public_dependency: bool = ("Respect a dependency's `public` field in Cargo.toml to control public/private dependencies"),
     publish_timeout: bool = ("Enable the `publish.timeout` key in .cargo/config.toml file"),
@@ -909,8 +908,6 @@ fn parse_git(it: impl Iterator<Item = impl AsRef<str>>) -> CargoResult<Option<Gi
 pub struct GitoxideFeatures {
     /// All fetches are done with `gitoxide`, which includes git dependencies as well as the crates index.
     pub fetch: bool,
-    /// Listing of files suitable for packaging with Git support.
-    pub list_files: bool,
     /// Checkout git dependencies using `gitoxide` (submodules are still handled by git2 ATM, and filters
     /// like linefeed conversions are unsupported).
     pub checkout: bool,
@@ -924,7 +921,6 @@ impl GitoxideFeatures {
     fn all() -> Self {
         GitoxideFeatures {
             fetch: true,
-            list_files: true,
             checkout: true,
             internal_use_git2: false,
         }
@@ -935,7 +931,6 @@ impl GitoxideFeatures {
     fn safe() -> Self {
         GitoxideFeatures {
             fetch: true,
-            list_files: true,
             checkout: true,
             internal_use_git2: false,
         }
@@ -948,7 +943,6 @@ fn parse_gitoxide(
     let mut out = GitoxideFeatures::default();
     let GitoxideFeatures {
         fetch,
-        list_files,
         checkout,
         internal_use_git2,
     } = &mut out;
@@ -957,10 +951,9 @@ fn parse_gitoxide(
         match e.as_ref() {
             "fetch" => *fetch = true,
             "checkout" => *checkout = true,
-            "list-files" => *list_files = true,
             "internal-use-git2" => *internal_use_git2 = true,
             _ => {
-                bail!("unstable 'gitoxide' only takes `fetch`, `list-files` and 'checkout' as valid input, for shallow fetches see `-Zgit=shallow-index,shallow-deps`")
+                bail!("unstable 'gitoxide' only takes `fetch` and 'checkout' as valid input, for shallow fetches see `-Zgit=shallow-index,shallow-deps`")
             }
         }
     }
@@ -1158,7 +1151,6 @@ impl CliUnstable {
             "panic-abort-tests" => self.panic_abort_tests = parse_empty(k, v)?,
             "public-dependency" => self.public_dependency = parse_empty(k, v)?,
             "profile-rustflags" => self.profile_rustflags = parse_empty(k, v)?,
-            "precise-pre-release" => self.precise_pre_release = parse_empty(k, v)?,
             "trim-paths" => self.trim_paths = parse_empty(k, v)?,
             "publish-timeout" => self.publish_timeout = parse_empty(k, v)?,
             "rustdoc-map" => self.rustdoc_map = parse_empty(k, v)?,
