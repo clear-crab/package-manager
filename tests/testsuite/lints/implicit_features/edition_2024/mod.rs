@@ -23,17 +23,21 @@ baz = { version = "0.1.0", optional = true }
 
 [features]
 baz = ["dep:baz"]
+
+[lints.cargo]
+unused-optional-dependency = "allow"
 "#,
         )
         .file("src/lib.rs", "")
         .build();
 
     snapbox::cmd::Command::cargo_ui()
-        .masquerade_as_nightly_cargo(&["always_nightly"])
+        .masquerade_as_nightly_cargo(&["cargo-lints", "edition2024"])
         .current_dir(p.root())
         .arg("check")
+        .arg("-Zcargo-lints")
         .assert()
-        .code(101)
+        .success()
         .stdout_matches(str![""])
         .stderr_matches(file!["stderr.term.svg"]);
 }

@@ -6,14 +6,14 @@ use cargo::{
     ops::CompileOptions,
     GlobalContext,
 };
-use cargo_test_support::compare;
 use cargo_test_support::paths::{root, CargoPathExt};
 use cargo_test_support::registry::Package;
-use cargo_test_support::tools;
 use cargo_test_support::{
     basic_bin_manifest, basic_lib_manifest, basic_manifest, cargo_exe, git, is_nightly, main_file,
     paths, process, project, rustc_host, sleep_ms, symlink_supported, t, Execs, ProjectBuilder,
 };
+use cargo_test_support::{cargo_process, compare};
+use cargo_test_support::{git_process, tools};
 use cargo_util::paths::dylib_path_envvar;
 use std::env;
 use std::fs;
@@ -31,6 +31,58 @@ fn cargo_compile_simple() {
     assert!(p.bin("foo").is_file());
 
     p.process(&p.bin("foo")).with_stdout("i am foo\n").run();
+}
+
+#[cargo_test]
+fn build_with_symlink_to_path_dependency_with_build_script_in_git() {
+    if !symlink_supported() {
+        return;
+    }
+
+    let root = paths::root();
+    git::repo(&root)
+        .nocommit_file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.1.0"
+                edition = "2021"
+
+               [dependencies]
+               # the path leads through a symlink, 'symlink-to-original' is a worktree root,
+               # and symlink-to-dir/ is a symlink to a sub-directory to be stepped through.
+               lib = { version = "0.1.0", path = "symlink-to-original/symlink-to-dir/lib" }
+            "#,
+        )
+        .nocommit_file("src/main.rs", "fn main() { }")
+        .nocommit_file("original/dir/lib/build.rs", "fn main() {}")
+        .nocommit_file(
+            "original/dir/lib/Cargo.toml",
+            r#"
+                [package]
+                name = "lib"
+                version = "0.1.0"
+                edition = "2021"
+              "#,
+        )
+        .nocommit_file("original/dir/lib/src/lib.rs", "")
+        .nocommit_symlink_dir("original", "symlink-to-original")
+        .nocommit_symlink_dir("original/dir", "original/symlink-to-dir")
+        .build();
+
+    // It is necessary to have a sub-repository and to add files so there is an index.
+    git_process("init")
+        .cwd(root.join("original"))
+        .build_command()
+        .status()
+        .unwrap();
+    git_process("add .")
+        .cwd(root.join("original"))
+        .build_command()
+        .status()
+        .unwrap();
+    cargo_process("build").run()
 }
 
 #[cargo_test]
@@ -1454,7 +1506,7 @@ fn cargo_default_env_metadata_env_var() {
     p.cargo("build -v")
         .with_stderr(&format!(
             "\
-[LOCKING] 2 packages
+[LOCKING] 2 packages to latest compatible versions
 [COMPILING] bar v0.0.1 ([CWD]/bar)
 [RUNNING] `rustc --crate-name bar --edition=2015 bar/src/lib.rs [..]--crate-type dylib \
         --emit=[..]link \
@@ -2477,7 +2529,7 @@ fn verbose_release_build_deps() {
     p.cargo("build -v --release")
         .with_stderr(&format!(
             "\
-[LOCKING] 2 packages
+[LOCKING] 2 packages to latest compatible versions
 [COMPILING] foo v0.0.0 ([CWD]/foo)
 [RUNNING] `rustc --crate-name foo --edition=2015 foo/src/lib.rs [..]\
         --crate-type dylib --crate-type rlib \
@@ -4171,7 +4223,7 @@ fn invalid_spec() {
         .with_status(101)
         .with_stderr(
             "\
-[LOCKING] 2 packages
+[LOCKING] 2 packages to latest compatible versions
 [ERROR] package ID specification `notAValidDep` did not match any packages",
         )
         .run();
@@ -4605,7 +4657,7 @@ fn build_all_workspace() {
     p.cargo("build --workspace")
         .with_stderr(
             "\
-[LOCKING] 2 packages
+[LOCKING] 2 packages to latest compatible versions
 [COMPILING] bar v0.1.0 ([..])
 [COMPILING] foo v0.1.0 ([..])
 [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
@@ -4640,7 +4692,7 @@ fn build_all_exclude() {
         .with_stderr_does_not_contain("[COMPILING] baz v0.1.0 [..]")
         .with_stderr_unordered(
             "\
-[LOCKING] 3 packages
+[LOCKING] 3 packages to latest compatible versions
 [COMPILING] foo v0.1.0 ([..])
 [COMPILING] bar v0.1.0 ([..])
 [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
@@ -4711,7 +4763,7 @@ fn build_all_exclude_not_found() {
         .with_stderr_does_not_contain("[COMPILING] baz v0.1.0 [..]")
         .with_stderr_unordered(
             "\
-[LOCKING] 2 packages
+[LOCKING] 2 packages to latest compatible versions
 [WARNING] excluded package(s) `baz` not found in workspace [..]
 [COMPILING] foo v0.1.0 ([..])
 [COMPILING] bar v0.1.0 ([..])
@@ -4747,7 +4799,7 @@ fn build_all_exclude_glob() {
         .with_stderr_does_not_contain("[COMPILING] baz v0.1.0 [..]")
         .with_stderr_unordered(
             "\
-[LOCKING] 3 packages
+[LOCKING] 3 packages to latest compatible versions
 [COMPILING] foo v0.1.0 ([..])
 [COMPILING] bar v0.1.0 ([..])
 [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
@@ -4781,7 +4833,7 @@ fn build_all_exclude_glob_not_found() {
         .with_stderr(
             "\
 [WARNING] excluded package pattern(s) `*z` not found in workspace [..]
-[LOCKING] 2 packages
+[LOCKING] 2 packages to latest compatible versions
 [COMPILING] [..] v0.1.0 ([..])
 [COMPILING] [..] v0.1.0 ([..])
 [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
@@ -4832,7 +4884,7 @@ fn build_all_workspace_implicit_examples() {
 
     p.cargo("build --workspace --examples")
         .with_stderr(
-            "[LOCKING] 2 packages\n\
+            "[LOCKING] 2 packages to latest compatible versions\n\
              [..] Compiling bar v0.1.0 ([..])\n\
              [..] Compiling foo v0.1.0 ([..])\n\
              [..] Finished `dev` profile [unoptimized + debuginfo] target(s) in [..]\n",
@@ -4868,7 +4920,7 @@ fn build_all_virtual_manifest() {
     p.cargo("build --workspace")
         .with_stderr_unordered(
             "\
-[LOCKING] 2 packages
+[LOCKING] 2 packages to latest compatible versions
 [COMPILING] baz v0.1.0 ([..])
 [COMPILING] bar v0.1.0 ([..])
 [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
@@ -4897,7 +4949,7 @@ fn build_virtual_manifest_all_implied() {
     p.cargo("build")
         .with_stderr_unordered(
             "\
-[LOCKING] 2 packages
+[LOCKING] 2 packages to latest compatible versions
 [COMPILING] baz v0.1.0 ([..])
 [COMPILING] bar v0.1.0 ([..])
 [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
@@ -4926,7 +4978,7 @@ fn build_virtual_manifest_one_project() {
         .with_stderr_does_not_contain("[..]baz[..]")
         .with_stderr(
             "\
-[LOCKING] 2 packages
+[LOCKING] 2 packages to latest compatible versions
 [COMPILING] bar v0.1.0 ([..])
 [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
@@ -4954,7 +5006,7 @@ fn build_virtual_manifest_glob() {
         .with_stderr_does_not_contain("[..]bar[..]")
         .with_stderr(
             "\
-[LOCKING] 2 packages
+[LOCKING] 2 packages to latest compatible versions
 [COMPILING] baz v0.1.0 ([..])
 [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
@@ -5030,7 +5082,7 @@ fn build_all_virtual_manifest_implicit_examples() {
     p.cargo("build --workspace --examples")
         .with_stderr_unordered(
             "\
-[LOCKING] 2 packages
+[LOCKING] 2 packages to latest compatible versions
 [COMPILING] baz v0.1.0 ([..])
 [COMPILING] bar v0.1.0 ([..])
 [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
@@ -5077,7 +5129,7 @@ fn build_all_member_dependency_same_name() {
     p.cargo("build --workspace")
         .with_stderr(
             "[UPDATING] `[..]` index\n\
-             [LOCKING] 2 packages\n\
+             [LOCKING] 2 packages to latest compatible versions\n\
              [DOWNLOADING] crates ...\n\
              [DOWNLOADED] a v0.1.0 ([..])\n\
              [COMPILING] a v0.1.0\n\
@@ -5228,6 +5280,30 @@ fn rustc_wrapper_precendence() {
         .env("RUSTC_WRAPPER", &rustc_wrapper)
         .env("RUSTC_WORKSPACE_WRAPPER", &ws_wrapper)
         .with_stderr_contains(running)
+        .run();
+}
+
+#[cargo_test]
+fn rustc_wrapper_queries() {
+    // Check that the invocations querying rustc for information are done with the wrapper.
+    let p = project().file("src/lib.rs", "").build();
+    let wrapper = tools::echo_wrapper();
+    p.cargo("build")
+        .env("CARGO_LOG", "cargo::util::rustc=debug")
+        .env("RUSTC_WRAPPER", &wrapper)
+        .with_stderr_contains("[..]running [..]rustc-echo-wrapper[EXE] rustc -vV[..]")
+        .with_stderr_contains(
+            "[..]running [..]rustc-echo-wrapper[EXE] rustc - --crate-name ___ --print[..]",
+        )
+        .run();
+    p.build_dir().rm_rf();
+    p.cargo("build")
+        .env("CARGO_LOG", "cargo::util::rustc=debug")
+        .env("RUSTC_WORKSPACE_WRAPPER", &wrapper)
+        .with_stderr_contains("[..]running [..]rustc-echo-wrapper[EXE] rustc -vV[..]")
+        .with_stderr_contains(
+            "[..]running [..]rustc-echo-wrapper[EXE] rustc - --crate-name ___ --print[..]",
+        )
         .run();
 }
 
@@ -6131,7 +6207,7 @@ fn target_filters_workspace() {
         .with_status(101)
         .with_stderr(
             "\
-[LOCKING] 2 packages
+[LOCKING] 2 packages to latest compatible versions
 [ERROR] no example target named `ex`
 
 <tab>Did you mean `ex1`?",
@@ -6179,7 +6255,7 @@ fn target_filters_workspace_not_found() {
         .with_status(101)
         .with_stderr(
             "\
-[LOCKING] 2 packages
+[LOCKING] 2 packages to latest compatible versions
 [ERROR] no library targets found in packages: a, b",
         )
         .run();
@@ -6239,7 +6315,7 @@ fn signal_display() {
     foo.cargo("build")
         .with_stderr(
             "\
-[LOCKING] 2 packages
+[LOCKING] 2 packages to latest compatible versions
 [COMPILING] pm [..]
 [COMPILING] foo [..]
 [ERROR] could not compile `foo` [..]
@@ -6298,7 +6374,7 @@ fn pipelining_works() {
         .with_stdout("")
         .with_stderr(
             "\
-[LOCKING] 2 packages
+[LOCKING] 2 packages to latest compatible versions
 [COMPILING] [..]
 [COMPILING] [..]
 [FINISHED] [..]
@@ -6415,7 +6491,7 @@ fn forward_rustc_output() {
         .with_stdout("a\nb\n{}")
         .with_stderr(
             "\
-[LOCKING] 2 packages
+[LOCKING] 2 packages to latest compatible versions
 [COMPILING] [..]
 [COMPILING] [..]
 c

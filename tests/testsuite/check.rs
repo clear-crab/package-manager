@@ -383,7 +383,7 @@ fn check_all_exclude() {
         .with_stderr_does_not_contain("[CHECKING] baz v0.1.0 [..]")
         .with_stderr(
             "\
-[LOCKING] 2 packages
+[LOCKING] 2 packages to latest compatible versions
 [CHECKING] bar v0.1.0 ([..])
 [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
@@ -411,7 +411,7 @@ fn check_all_exclude_glob() {
         .with_stderr_does_not_contain("[CHECKING] baz v0.1.0 [..]")
         .with_stderr(
             "\
-[LOCKING] 2 packages
+[LOCKING] 2 packages to latest compatible versions
 [CHECKING] bar v0.1.0 ([..])
 [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
@@ -461,7 +461,7 @@ fn check_virtual_manifest_one_project() {
         .with_stderr_does_not_contain("[CHECKING] baz v0.1.0 [..]")
         .with_stderr(
             "\
-[LOCKING] 2 packages
+[LOCKING] 2 packages to latest compatible versions
 [CHECKING] bar v0.1.0 ([..])
 [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
@@ -489,7 +489,7 @@ fn check_virtual_manifest_glob() {
         .with_stderr_does_not_contain("[CHECKING] bar v0.1.0 [..]")
         .with_stderr(
             "\
-[LOCKING] 2 packages
+[LOCKING] 2 packages to latest compatible versions
 [CHECKING] baz v0.1.0 ([..])
 [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
@@ -980,6 +980,63 @@ fn rustc_workspace_wrapper_excludes_published_deps() {
 }
 
 #[cargo_test]
+fn warn_manifest_with_project() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [project]
+                name = "foo"
+                version = "0.0.1"
+                edition = "2015"
+            "#,
+        )
+        .file("src/main.rs", "fn main() {}")
+        .build();
+
+    p.cargo("check")
+        .with_stderr(
+            "\
+[WARNING] `[project]` is deprecated in favor of `[package]`
+[CHECKING] foo v0.0.1 ([CWD])
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
+",
+        )
+        .run();
+}
+
+#[cargo_test(nightly, reason = "edition2024")]
+fn error_manifest_with_project_on_2024() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                cargo-features = ["edition2024"]
+
+                [project]
+                name = "foo"
+                version = "0.0.1"
+                edition = "2024"
+            "#,
+        )
+        .file("src/main.rs", "fn main() {}")
+        .build();
+
+    p.cargo("check")
+        .masquerade_as_nightly_cargo(&["edition2024"])
+        .with_status(101)
+        .with_stderr(
+            "\
+[ERROR] failed to parse manifest at `[CWD]/Cargo.toml`
+
+Caused by:
+  `[project]` is not supported as of the 2024 Edition, please use `[package]`
+",
+        )
+        .run();
+}
+
+#[cargo_test]
 fn warn_manifest_package_and_project() {
     let p = project()
         .file(
@@ -1002,7 +1059,7 @@ fn warn_manifest_package_and_project() {
     p.cargo("check")
         .with_stderr(
             "\
-[WARNING] manifest at `[CWD]` contains both `project` and `package`, this could become a hard error in the future
+[WARNING] `[project]` is deprecated in favor of `[package]`
 [CHECKING] foo v0.0.1 ([CWD])
 [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
@@ -1056,34 +1113,8 @@ fn git_manifest_package_and_project() {
         .with_stderr(
             "\
 [UPDATING] git repository `[..]`
-[LOCKING] 2 packages
+[LOCKING] 2 packages to latest compatible versions
 [CHECKING] bar v0.0.1 ([..])
-[CHECKING] foo v0.0.1 ([CWD])
-[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
-",
-        )
-        .run();
-}
-
-#[cargo_test]
-fn warn_manifest_with_project() {
-    let p = project()
-        .file(
-            "Cargo.toml",
-            r#"
-                [project]
-                name = "foo"
-                version = "0.0.1"
-                edition = "2015"
-            "#,
-        )
-        .file("src/main.rs", "fn main() {}")
-        .build();
-
-    p.cargo("check")
-        .with_stderr(
-            "\
-[WARNING] manifest at `[CWD]` contains `[project]` instead of `[package]`, this could become a hard error in the future
 [CHECKING] foo v0.0.1 ([CWD])
 [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
@@ -1132,7 +1163,7 @@ fn git_manifest_with_project() {
         .with_stderr(
             "\
 [UPDATING] git repository `[..]`
-[LOCKING] 2 packages
+[LOCKING] 2 packages to latest compatible versions
 [CHECKING] bar v0.0.1 ([..])
 [CHECKING] foo v0.0.1 ([CWD])
 [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
@@ -1456,7 +1487,7 @@ fn check_unused_manifest_keys() {
 [WARNING] unused manifest key: target.cfg(windows).dependencies.foo.wxz
 [WARNING] unused manifest key: target.x86_64-pc-windows-gnu.dev-dependencies.foo.wxz
 [UPDATING] `[..]` index
-[LOCKING] 3 packages
+[LOCKING] 3 packages to latest compatible versions
 [DOWNLOADING] crates ...
 [DOWNLOADED] foo v0.1.0 ([..])
 [DOWNLOADED] dep v0.1.0 ([..])

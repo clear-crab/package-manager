@@ -1051,7 +1051,7 @@ fn dep_feature_in_cmd_line() {
     p.cargo("build")
         .with_stderr(
             "\
-[LOCKING] 2 packages
+[LOCKING] 2 packages to latest compatible versions
 [FINISHED] `dev` profile [..]",
         )
         .run();
@@ -1129,6 +1129,7 @@ Consider enabling them by passing, e.g., `--features=\"bar/a\"`
         .with_stderr(
             "\
 [INSTALLING] foo v0.0.1 ([..])
+[LOCKING] 2 packages to latest compatible versions
 [FINISHED] `release` profile [optimized] target(s) in [..]
 [WARNING] none of the package's binaries are available for install using the selected features
   bin \"foo\" requires the features: `bar/a`
@@ -1376,7 +1377,7 @@ fn renamed_required_features() {
         .with_status(101)
         .with_stderr(
             "\
-[LOCKING] 3 packages
+[LOCKING] 3 packages to latest compatible versions
 [ERROR] target `x` in package `foo` requires the features: `a1/f1`
 Consider enabling them by passing, e.g., `--features=\"a1/f1\"`
 ",

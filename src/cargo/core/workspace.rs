@@ -24,9 +24,12 @@ use crate::sources::{PathSource, CRATES_IO_INDEX, CRATES_IO_REGISTRY};
 use crate::util::edit_distance;
 use crate::util::errors::{CargoResult, ManifestError};
 use crate::util::interning::InternedString;
-use crate::util::lints::check_implicit_features;
+use crate::util::lints::{check_implicit_features, unused_dependencies};
 use crate::util::toml::{read_manifest, InheritableFields};
-use crate::util::{context::ConfigRelativePath, Filesystem, GlobalContext, IntoUrl};
+use crate::util::{
+    context::CargoResolverConfig, context::CargoResolverPrecedence, context::ConfigRelativePath,
+    Filesystem, GlobalContext, IntoUrl,
+};
 use cargo_util::paths;
 use cargo_util::paths::normalize_path;
 use cargo_util_schemas::manifest;
@@ -100,6 +103,7 @@ pub struct Workspace<'gctx> {
 
     /// The resolver behavior specified with the `resolver` field.
     resolve_behavior: ResolveBehavior,
+    resolve_honors_rust_version: bool,
     honor_rust_version: Option<bool>,
 
     /// Workspace-level custom metadata
@@ -207,7 +211,7 @@ impl<'gctx> Workspace<'gctx> {
             .load_workspace_config()?
             .and_then(|cfg| cfg.custom_metadata);
         ws.find_members()?;
-        ws.set_resolve_behavior();
+        ws.set_resolve_behavior()?;
         ws.validate()?;
         Ok(ws)
     }
@@ -230,6 +234,7 @@ impl<'gctx> Workspace<'gctx> {
             loaded_packages: RefCell::new(HashMap::new()),
             ignore_lock: false,
             resolve_behavior: ResolveBehavior::V1,
+            resolve_honors_rust_version: false,
             honor_rust_version: None,
             custom_metadata: None,
         }
@@ -248,7 +253,7 @@ impl<'gctx> Workspace<'gctx> {
             .packages
             .insert(root_path, MaybePackage::Virtual(manifest));
         ws.find_members()?;
-        ws.set_resolve_behavior();
+        ws.set_resolve_behavior()?;
         // TODO: validation does not work because it walks up the directory
         // tree looking for the root which is a fake file that doesn't exist.
         Ok(ws)
@@ -284,11 +289,11 @@ impl<'gctx> Workspace<'gctx> {
         ws.members.push(ws.current_manifest.clone());
         ws.member_ids.insert(id);
         ws.default_members.push(ws.current_manifest.clone());
-        ws.set_resolve_behavior();
+        ws.set_resolve_behavior()?;
         Ok(ws)
     }
 
-    fn set_resolve_behavior(&mut self) {
+    fn set_resolve_behavior(&mut self) -> CargoResult<()> {
         // - If resolver is specified in the workspace definition, use that.
         // - If the root package specifies the resolver, use that.
         // - If the root package specifies edition 2021, use v2.
@@ -299,7 +304,47 @@ impl<'gctx> Workspace<'gctx> {
                 .resolve_behavior()
                 .unwrap_or_else(|| p.manifest().edition().default_resolve_behavior()),
             MaybePackage::Virtual(vm) => vm.resolve_behavior().unwrap_or(ResolveBehavior::V1),
+        };
+
+        match self.resolve_behavior() {
+            ResolveBehavior::V1 | ResolveBehavior::V2 => {}
+            ResolveBehavior::V3 => {
+                if self.resolve_behavior == ResolveBehavior::V3 {
+                    if !self.gctx().cli_unstable().msrv_policy {
+                        anyhow::bail!("`resolver=\"3\"` requires `-Zmsrv-policy`");
+                    }
+                    self.resolve_honors_rust_version = true;
+                }
+            }
         }
+        match self.gctx().get::<CargoResolverConfig>("resolver") {
+            Ok(CargoResolverConfig {
+                something_like_precedence: Some(precedence),
+            }) => {
+                if self.gctx().cli_unstable().msrv_policy {
+                    self.resolve_honors_rust_version =
+                        precedence == CargoResolverPrecedence::SomethingLikeRustVersion;
+                } else {
+                    self.gctx()
+                        .shell()
+                        .warn("ignoring `resolver` config table without `-Zmsrv-policy`")?;
+                }
+            }
+            Ok(CargoResolverConfig {
+                something_like_precedence: None,
+            }) => {}
+            Err(err) => {
+                if self.gctx().cli_unstable().msrv_policy {
+                    return Err(err);
+                } else {
+                    self.gctx()
+                        .shell()
+                        .warn("ignoring `resolver` config table without `-Zmsrv-policy`")?;
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Returns the current package of this workspace.
@@ -611,8 +656,14 @@ impl<'gctx> Workspace<'gctx> {
         self.honor_rust_version = honor_rust_version;
     }
 
+    pub fn honor_rust_version(&self) -> Option<bool> {
+        self.honor_rust_version
+    }
+
     pub fn resolve_honors_rust_version(&self) -> bool {
-        self.gctx().cli_unstable().msrv_policy && self.honor_rust_version.unwrap_or(true)
+        // Give CLI precedence
+        self.honor_rust_version
+            .unwrap_or(self.resolve_honors_rust_version)
     }
 
     pub fn custom_metadata(&self) -> Option<&toml::Value> {
@@ -829,7 +880,7 @@ impl<'gctx> Workspace<'gctx> {
         self.is_virtual()
             || match self.resolve_behavior() {
                 ResolveBehavior::V1 => false,
-                ResolveBehavior::V2 => true,
+                ResolveBehavior::V2 | ResolveBehavior::V3 => true,
             }
     }
 
@@ -1154,6 +1205,7 @@ impl<'gctx> Workspace<'gctx> {
             .collect();
 
         check_implicit_features(pkg, &path, &normalized_lints, &mut error_count, self.gctx)?;
+        unused_dependencies(pkg, &path, &normalized_lints, &mut error_count, self.gctx)?;
         if error_count > 0 {
             Err(crate::util::errors::AlreadyPrintedError::new(anyhow!(
                 "encountered {error_count} errors(s) while running lints"

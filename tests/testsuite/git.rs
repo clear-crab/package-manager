@@ -62,7 +62,7 @@ fn cargo_compile_simple_git_dep() {
         .cargo("build")
         .with_stderr(&format!(
             "[UPDATING] git repository `{}`\n\
-             [LOCKING] 2 packages\n\
+             [LOCKING] 2 packages to latest compatible versions\n\
              [COMPILING] dep1 v0.5.0 ({}#[..])\n\
              [COMPILING] foo v0.5.0 ([CWD])\n\
              [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]\n",
@@ -134,7 +134,7 @@ fn cargo_compile_git_dep_branch() {
         .cargo("build")
         .with_stderr(&format!(
             "[UPDATING] git repository `{}`\n\
-             [LOCKING] 2 packages\n\
+             [LOCKING] 2 packages to latest compatible versions\n\
              [COMPILING] dep1 v0.5.0 ({}?branch=branchy#[..])\n\
              [COMPILING] foo v0.5.0 ([CWD])\n\
              [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]\n",
@@ -211,7 +211,7 @@ fn cargo_compile_git_dep_tag() {
         .cargo("build")
         .with_stderr(&format!(
             "[UPDATING] git repository `{}`\n\
-             [LOCKING] 2 packages\n\
+             [LOCKING] 2 packages to latest compatible versions\n\
              [COMPILING] dep1 v0.5.0 ({}?tag=v0.1.0#[..])\n\
              [COMPILING] foo v0.5.0 ([CWD])\n\
              [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]\n",
@@ -282,7 +282,7 @@ fn cargo_compile_git_dep_pull_request() {
         .cargo("build")
         .with_stderr(&format!(
             "[UPDATING] git repository `{}`\n\
-             [LOCKING] 2 packages\n\
+             [LOCKING] 2 packages to latest compatible versions\n\
              [COMPILING] dep1 v0.5.0 ({}?rev=refs/pull/330/head#[..])\n\
              [COMPILING] foo v0.0.0 ([CWD])\n\
              [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]\n",
@@ -596,7 +596,7 @@ fn recompilation() {
     p.cargo("check")
         .with_stderr(&format!(
             "[UPDATING] git repository `{}`\n\
-             [LOCKING] 2 packages\n\
+             [LOCKING] 2 packages to latest compatible versions\n\
              [CHECKING] bar v0.5.0 ({}#[..])\n\
              [CHECKING] foo v0.5.0 ([CWD])\n\
              [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) \
@@ -616,7 +616,10 @@ fn recompilation() {
 
     p.cargo("update")
         .with_stderr(&format!(
-            "[UPDATING] git repository `{}`",
+            "\
+[UPDATING] git repository `{}`
+[LOCKING] 0 packages to latest compatible versions
+",
             git_project.url()
         ))
         .run();
@@ -636,9 +639,11 @@ fn recompilation() {
     // Update the dependency and carry on!
     p.cargo("update")
         .with_stderr(&format!(
-            "[UPDATING] git repository `{}`\n\
-             [UPDATING] bar v0.5.0 ([..]) -> #[..]\n\
-             ",
+            "\
+[UPDATING] git repository `{}`
+[LOCKING] 1 package to latest compatible version
+[UPDATING] bar v0.5.0 ([..]) -> #[..]
+",
             git_project.url()
         ))
         .run();
@@ -741,7 +746,7 @@ fn update_with_shared_deps() {
         .with_stderr(&format!(
             "\
 [UPDATING] git repository `{git}`
-[LOCKING] 4 packages
+[LOCKING] 4 packages to latest compatible versions
 [CHECKING] bar v0.5.0 ({git}#[..])
 [CHECKING] [..] v0.5.0 ([..])
 [CHECKING] [..] v0.5.0 ([..])
@@ -766,6 +771,7 @@ fn update_with_shared_deps() {
         .with_stderr(
             "\
 [UPDATING] git repository [..]
+[LOCKING] 1 package to latest compatible version
 [UPDATING] bar v0.5.0 [..]
 ",
         )
@@ -791,16 +797,21 @@ Caused by:
     println!("bar precise update");
     p.cargo("update bar --precise")
         .arg(&old_head.to_string())
-        .with_stderr("[UPDATING] bar v0.5.0 [..]")
+        .with_stderr(
+            "\
+[UPDATING] bar v0.5.0 [..]",
+        )
         .run();
 
     // Updating recursively should, however, update the repo.
     println!("dep1 recursive update");
     p.cargo("update dep1 --recursive")
         .with_stderr(&format!(
-            "[UPDATING] git repository `{}`\n\
-             [UPDATING] bar v0.5.0 ([..]) -> #[..]\n\
-             ",
+            "\
+[UPDATING] git repository `{}`
+[LOCKING] 1 package to latest compatible version
+[UPDATING] bar v0.5.0 ([..]) -> #[..]
+",
             git_project.url()
         ))
         .run();
@@ -822,7 +833,10 @@ Caused by:
     // We should be able to update transitive deps
     p.cargo("update bar")
         .with_stderr(&format!(
-            "[UPDATING] git repository `{}`",
+            "\
+[UPDATING] git repository `{}`
+[LOCKING] 0 packages to latest compatible versions
+",
             git_project.url()
         ))
         .run();
@@ -872,7 +886,7 @@ fn dep_with_submodule() {
             "\
 [UPDATING] git repository [..]
 [UPDATING] git submodule `file://[..]/dep2`
-[LOCKING] 2 packages
+[LOCKING] 2 packages to latest compatible versions
 [CHECKING] dep1 [..]
 [CHECKING] foo [..]
 [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]\n",
@@ -941,7 +955,7 @@ fn dep_with_relative_submodule() {
             "\
 [UPDATING] git repository [..]
 [UPDATING] git submodule `file://[..]/deployment`
-[LOCKING] 3 packages
+[LOCKING] 3 packages to latest compatible versions
 [CHECKING] deployment [..]
 [CHECKING] base [..]
 [CHECKING] foo [..]
@@ -1079,7 +1093,7 @@ fn dep_with_skipped_submodule() {
             "\
 [UPDATING] git repository `file://[..]/bar`
 [SKIPPING] git submodule `file://[..]/qux` [..]
-[LOCKING] 2 packages
+[LOCKING] 2 packages to latest compatible versions
 [CHECKING] bar [..]
 [CHECKING] foo [..]
 [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]\n",
@@ -1207,7 +1221,7 @@ fn two_deps_only_update_one() {
         .with_stderr(
             "[UPDATING] git repository `[..]`\n\
              [UPDATING] git repository `[..]`\n\
-             [LOCKING] 3 packages\n\
+             [LOCKING] 3 packages to latest compatible versions\n\
              [CHECKING] [..] v0.5.0 ([..])\n\
              [CHECKING] [..] v0.5.0 ([..])\n\
              [CHECKING] foo v0.5.0 ([CWD])\n\
@@ -1223,9 +1237,11 @@ fn two_deps_only_update_one() {
 
     p.cargo("update dep1")
         .with_stderr(&format!(
-            "[UPDATING] git repository `{}`\n\
-             [UPDATING] dep1 v0.5.0 ([..]) -> #[..]\n\
-             ",
+            "\
+[UPDATING] git repository `{}`
+[LOCKING] 1 package to latest compatible version
+[UPDATING] dep1 v0.5.0 ([..]) -> #[..]
+",
             git1.url()
         ))
         .run();
@@ -1367,7 +1383,7 @@ fn dep_with_changed_submodule() {
         .with_stderr(
             "[UPDATING] git repository `[..]`\n\
              [UPDATING] git submodule `file://[..]/dep2`\n\
-             [LOCKING] 2 packages\n\
+             [LOCKING] 2 packages to latest compatible versions\n\
              [COMPILING] dep1 v0.5.0 ([..])\n\
              [COMPILING] foo v0.5.0 ([..])\n\
              [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in \
@@ -1411,10 +1427,12 @@ fn dep_with_changed_submodule() {
     p.cargo("update")
         .with_stderr("")
         .with_stderr(&format!(
-            "[UPDATING] git repository `{}`\n\
-             [UPDATING] git submodule `file://[..]/dep3`\n\
-             [UPDATING] dep1 v0.5.0 ([..]) -> #[..]\n\
-             ",
+            "\
+[UPDATING] git repository `{}`
+[UPDATING] git submodule `file://[..]/dep3`
+[LOCKING] 1 package to latest compatible version
+[UPDATING] dep1 v0.5.0 ([..]) -> #[..]
+",
             git_project.url()
         ))
         .run();
@@ -1484,7 +1502,7 @@ fn dev_deps_with_testing() {
         .with_stderr(&format!(
             "\
 [UPDATING] git repository `{bar}`
-[LOCKING] 2 packages
+[LOCKING] 2 packages to latest compatible versions
 [CHECKING] foo v0.5.0 ([CWD])
 [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
@@ -1592,7 +1610,7 @@ fn git_name_not_always_needed() {
         .with_stderr(&format!(
             "\
 [UPDATING] git repository `{bar}`
-[LOCKING] 2 packages
+[LOCKING] 2 packages to latest compatible versions
 [CHECKING] foo v0.5.0 ([CWD])
 [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
 ",
@@ -1636,7 +1654,7 @@ fn git_repo_changing_no_rebuild() {
         .with_stderr(&format!(
             "\
 [UPDATING] git repository `{bar}`
-[LOCKING] 2 packages
+[LOCKING] 2 packages to latest compatible versions
 [COMPILING] [..]
 [CHECKING] [..]
 [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
@@ -1675,7 +1693,7 @@ fn git_repo_changing_no_rebuild() {
         .with_stderr(&format!(
             "\
 [UPDATING] git repository `{bar}`
-[LOCKING] 2 packages
+[LOCKING] 2 packages to latest compatible versions
 [CHECKING] [..]
 [CHECKING] [..]
 [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
@@ -1791,7 +1809,7 @@ fn fetch_downloads() {
         .with_stderr(&format!(
             "\
 [UPDATING] git repository `{url}`
-[LOCKING] 2 packages
+[LOCKING] 2 packages to latest compatible versions
 ",
             url = bar.url()
         ))
@@ -1839,7 +1857,7 @@ fn fetch_downloads_with_git2_first_then_with_gitoxide_and_vice_versa() {
         .with_stderr(&format!(
             "\
 [UPDATING] git repository `{url}`
-[LOCKING] 2 packages",
+[LOCKING] 2 packages to latest compatible versions",
             url = bar.url()
         ))
         .run();
@@ -1878,7 +1896,7 @@ fn warnings_in_git_dep() {
     p.cargo("check")
         .with_stderr(&format!(
             "[UPDATING] git repository `{}`\n\
-             [LOCKING] 2 packages\n\
+             [LOCKING] 2 packages to latest compatible versions\n\
              [CHECKING] bar v0.5.0 ({}#[..])\n\
              [CHECKING] foo v0.5.0 ([CWD])\n\
              [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]\n",
@@ -1993,7 +2011,13 @@ fn update_one_dep_in_repo_with_many_deps() {
 
     p.cargo("generate-lockfile").run();
     p.cargo("update bar")
-        .with_stderr(&format!("[UPDATING] git repository `{}`", bar.url()))
+        .with_stderr(&format!(
+            "\
+[UPDATING] git repository `{}`
+[LOCKING] 0 packages to latest compatible versions
+",
+            bar.url()
+        ))
         .run();
 }
 
@@ -2069,7 +2093,7 @@ fn switch_deps_does_not_update_transitive() {
             "\
 [UPDATING] git repository `{}`
 [UPDATING] git repository `{}`
-[LOCKING] 3 packages
+[LOCKING] 3 packages to latest compatible versions
 [CHECKING] transitive [..]
 [CHECKING] dep [..]
 [CHECKING] foo [..]
@@ -2102,7 +2126,7 @@ fn switch_deps_does_not_update_transitive() {
         .with_stderr(&format!(
             "\
 [UPDATING] git repository `{}`
-[LOCKING] 1 package
+[LOCKING] 1 package to latest compatible version
 [ADDING] dep v0.5.0 ([..])
 [CHECKING] dep [..]
 [CHECKING] foo [..]
@@ -2223,7 +2247,7 @@ fn switch_sources() {
         .with_stderr(
             "\
 [UPDATING] git repository `file://[..]a1`
-[LOCKING] 3 packages
+[LOCKING] 3 packages to latest compatible versions
 [CHECKING] a v0.5.0 ([..]a1#[..]
 [CHECKING] b v0.5.0 ([..])
 [CHECKING] foo v0.5.0 ([..])
@@ -2252,7 +2276,7 @@ fn switch_sources() {
         .with_stderr(
             "\
 [UPDATING] git repository `file://[..]a2`
-[LOCKING] 1 package
+[LOCKING] 1 package to latest compatible version
 [ADDING] a v0.5.1 ([..])
 [CHECKING] a v0.5.1 ([..]a2#[..]
 [CHECKING] b v0.5.0 ([..])
@@ -2387,7 +2411,7 @@ fn lints_are_suppressed() {
         .with_stderr(
             "\
 [UPDATING] git repository `[..]`
-[LOCKING] 2 packages
+[LOCKING] 2 packages to latest compatible versions
 [CHECKING] a v0.5.0 ([..])
 [CHECKING] foo v0.0.1 ([..])
 [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
@@ -2432,7 +2456,7 @@ fn denied_lints_are_allowed() {
         .with_stderr(
             "\
 [UPDATING] git repository `[..]`
-[LOCKING] 2 packages
+[LOCKING] 2 packages to latest compatible versions
 [CHECKING] a v0.5.0 ([..])
 [CHECKING] foo v0.0.1 ([..])
 [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]
@@ -3125,7 +3149,7 @@ fn default_not_master() {
         .with_stderr(
             "\
 [UPDATING] git repository `[..]`
-[LOCKING] 2 packages
+[LOCKING] 2 packages to latest compatible versions
 [CHECKING] dep1 v0.5.0 ([..])
 [CHECKING] foo v0.5.0 ([..])
 [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]",
@@ -3189,7 +3213,7 @@ dependencies = [
         .cargo("check")
         .with_stderr(
             "\
-[LOCKING] 1 package
+[LOCKING] 1 package to latest compatible version
 [ADDING] dep1 v0.5.0 ([..])
 [FINISHED] [..]
 ",
@@ -3785,7 +3809,7 @@ fn different_user_relative_submodules() {
 [UPDATING] git repository `{}`
 [UPDATING] git submodule `{}`
 [UPDATING] git submodule `{}`
-[LOCKING] 2 packages
+[LOCKING] 2 packages to latest compatible versions
 [COMPILING] dep1 v0.5.0 ({}#[..])
 [COMPILING] foo v0.5.0 ([CWD])
 [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [..]

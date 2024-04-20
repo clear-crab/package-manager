@@ -1,5 +1,5 @@
 use annotate_snippets::{Level, Renderer, Snippet};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -20,6 +20,7 @@ use crate::core::compiler::{CompileKind, CompileTarget};
 use crate::core::dependency::{Artifact, ArtifactTarget, DepKind};
 use crate::core::manifest::{ManifestMetadata, TargetSourcePath};
 use crate::core::resolver::ResolveBehavior;
+use crate::core::FeatureValue::Dep;
 use crate::core::{find_workspace_root, resolve_relative_path, CliUnstable, FeatureValue};
 use crate::core::{Dependency, Manifest, Package, PackageId, Summary, Target};
 use crate::core::{Edition, EitherManifest, Feature, Features, VirtualManifest, Workspace};
@@ -265,6 +266,12 @@ fn resolve_toml(
     warnings: &mut Vec<String>,
     _errors: &mut Vec<String>,
 ) -> CargoResult<manifest::TomlManifest> {
+    if let Some(workspace) = &original_toml.workspace {
+        if workspace.resolver.as_deref() == Some("3") {
+            features.require(Feature::edition2024())?;
+        }
+    }
+
     let mut resolved_toml = manifest::TomlManifest {
         cargo_features: original_toml.cargo_features.clone(),
         package: None,
@@ -299,13 +306,36 @@ fn resolve_toml(
     };
 
     if let Some(original_package) = original_toml.package() {
-        let resolved_package = resolve_package_toml(original_package, package_root, &inherit)?;
+        let resolved_package =
+            resolve_package_toml(original_package, features, package_root, &inherit)?;
+        let edition = resolved_package
+            .resolved_edition()
+            .expect("previously resolved")
+            .map_or(Edition::default(), |e| {
+                Edition::from_str(&e).unwrap_or_default()
+            });
         resolved_toml.package = Some(resolved_package);
+
+        let activated_opt_deps = resolved_toml
+            .features
+            .as_ref()
+            .map(|map| {
+                map.values()
+                    .flatten()
+                    .filter_map(|f| match FeatureValue::new(InternedString::new(f)) {
+                        Dep { dep_name } => Some(dep_name.as_str()),
+                        _ => None,
+                    })
+                    .collect::<HashSet<_>>()
+            })
+            .unwrap_or_default();
 
         resolved_toml.dependencies = resolve_dependencies(
             gctx,
+            edition,
             &features,
             original_toml.dependencies.as_ref(),
+            &activated_opt_deps,
             None,
             &inherit,
             package_root,
@@ -313,8 +343,10 @@ fn resolve_toml(
         )?;
         resolved_toml.dev_dependencies = resolve_dependencies(
             gctx,
+            edition,
             &features,
             original_toml.dev_dependencies(),
+            &activated_opt_deps,
             Some(DepKind::Development),
             &inherit,
             package_root,
@@ -322,8 +354,10 @@ fn resolve_toml(
         )?;
         resolved_toml.build_dependencies = resolve_dependencies(
             gctx,
+            edition,
             &features,
             original_toml.build_dependencies(),
+            &activated_opt_deps,
             Some(DepKind::Build),
             &inherit,
             package_root,
@@ -333,8 +367,10 @@ fn resolve_toml(
         for (name, platform) in original_toml.target.iter().flatten() {
             let resolved_dependencies = resolve_dependencies(
                 gctx,
+                edition,
                 &features,
                 platform.dependencies.as_ref(),
+                &activated_opt_deps,
                 None,
                 &inherit,
                 package_root,
@@ -342,8 +378,10 @@ fn resolve_toml(
             )?;
             let resolved_dev_dependencies = resolve_dependencies(
                 gctx,
+                edition,
                 &features,
                 platform.dev_dependencies(),
+                &activated_opt_deps,
                 Some(DepKind::Development),
                 &inherit,
                 package_root,
@@ -351,8 +389,10 @@ fn resolve_toml(
             )?;
             let resolved_build_dependencies = resolve_dependencies(
                 gctx,
+                edition,
                 &features,
                 platform.build_dependencies(),
+                &activated_opt_deps,
                 Some(DepKind::Build),
                 &inherit,
                 package_root,
@@ -399,6 +439,7 @@ fn resolve_toml(
 #[tracing::instrument(skip_all)]
 fn resolve_package_toml<'a>(
     original_package: &manifest::TomlPackage,
+    features: &Features,
     package_root: &Path,
     inherit: &dyn Fn() -> CargoResult<&'a InheritableFields>,
 ) -> CargoResult<Box<manifest::TomlPackage>> {
@@ -526,6 +567,11 @@ fn resolve_package_toml<'a>(
         metadata: original_package.metadata.clone(),
         _invalid_cargo_features: Default::default(),
     };
+
+    if resolved_package.resolver.as_deref() == Some("3") {
+        features.require(Feature::edition2024())?;
+    }
+
     Ok(Box::new(resolved_package))
 }
 
@@ -561,8 +607,10 @@ fn default_readme_from_package_root(package_root: &Path) -> Option<String> {
 #[tracing::instrument(skip_all)]
 fn resolve_dependencies<'a>(
     gctx: &GlobalContext,
+    edition: Edition,
     features: &Features,
     orig_deps: Option<&BTreeMap<manifest::PackageName, manifest::InheritableDependency>>,
+    activated_opt_deps: &HashSet<&str>,
     kind: Option<DepKind>,
     inherit: &dyn Fn() -> CargoResult<&'a InheritableFields>,
     package_root: &Path,
@@ -610,10 +658,18 @@ fn resolve_dependencies<'a>(
             }
         }
 
-        deps.insert(
-            name_in_toml.clone(),
-            manifest::InheritableDependency::Value(resolved.clone()),
-        );
+        // if the dependency is not optional, it is always used
+        // if the dependency is optional and activated, it is used
+        // if the dependency is optional and not activated, it is not used
+        let is_dep_activated =
+            !resolved.is_optional() || activated_opt_deps.contains(name_in_toml.as_str());
+        // If the edition is less than 2024, we don't need to check for unused optional dependencies
+        if edition < Edition::Edition2024 || is_dep_activated {
+            deps.insert(
+                name_in_toml.clone(),
+                manifest::InheritableDependency::Value(resolved.clone()),
+            );
+        }
     }
     Ok(Some(deps))
 }
@@ -935,26 +991,9 @@ fn to_real_manifest(
         );
     };
 
-    let original_package = match (&original_toml.package, &original_toml.project) {
-        (Some(_), Some(project)) => {
-            warnings.push(format!(
-                "manifest at `{}` contains both `project` and `package`, \
-                    this could become a hard error in the future",
-                package_root.display()
-            ));
-            project.clone()
-        }
-        (Some(package), None) => package.clone(),
-        (None, Some(project)) => {
-            warnings.push(format!(
-                "manifest at `{}` contains `[project]` instead of `[package]`, \
-                                this could become a hard error in the future",
-                package_root.display()
-            ));
-            project.clone()
-        }
-        (None, None) => bail!("no `package` section found"),
-    };
+    let original_package = original_toml
+        .package()
+        .ok_or_else(|| anyhow::format_err!("no `package` section found"))?;
 
     let package_name = &original_package.name;
     if package_name.contains(':') {
@@ -1042,6 +1081,16 @@ fn to_real_manifest(
             "edition {} should be gated",
             edition
         )));
+    }
+
+    if original_toml.project.is_some() {
+        if Edition::Edition2024 <= edition {
+            anyhow::bail!(
+                "`[project]` is not supported as of the 2024 Edition, please use `[package]`"
+            );
+        } else {
+            warnings.push(format!("`[project]` is deprecated in favor of `[package]`"));
+        }
     }
 
     if resolved_package.metabuild.is_some() {
@@ -1679,14 +1728,11 @@ fn detailed_dep_to_dependency<P: ResolveToPath + Clone>(
     kind: Option<DepKind>,
 ) -> CargoResult<Dependency> {
     if orig.version.is_none() && orig.path.is_none() && orig.git.is_none() {
-        let msg = format!(
-            "dependency ({}) specified without \
+        anyhow::bail!(
+            "dependency ({name_in_toml}) specified without \
                  providing a local path, Git repository, version, or \
-                 workspace dependency to use. This will be considered an \
-                 error in future versions",
-            name_in_toml
+                 workspace dependency to use"
         );
-        manifest_ctx.warnings.push(msg);
     }
 
     if let Some(version) = &orig.version {
