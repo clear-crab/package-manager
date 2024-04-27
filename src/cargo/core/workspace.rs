@@ -24,7 +24,7 @@ use crate::sources::{PathSource, CRATES_IO_INDEX, CRATES_IO_REGISTRY};
 use crate::util::edit_distance;
 use crate::util::errors::{CargoResult, ManifestError};
 use crate::util::interning::InternedString;
-use crate::util::lints::{check_implicit_features, unused_dependencies};
+use crate::util::lints::{check_im_a_teapot, check_implicit_features, unused_dependencies};
 use crate::util::toml::{read_manifest, InheritableFields};
 use crate::util::{
     context::CargoResolverConfig, context::CargoResolverPrecedence, context::ConfigRelativePath,
@@ -104,7 +104,6 @@ pub struct Workspace<'gctx> {
     /// The resolver behavior specified with the `resolver` field.
     resolve_behavior: ResolveBehavior,
     resolve_honors_rust_version: bool,
-    honor_rust_version: Option<bool>,
 
     /// Workspace-level custom metadata
     custom_metadata: Option<toml::Value>,
@@ -235,7 +234,6 @@ impl<'gctx> Workspace<'gctx> {
             ignore_lock: false,
             resolve_behavior: ResolveBehavior::V1,
             resolve_honors_rust_version: false,
-            honor_rust_version: None,
             custom_metadata: None,
         }
     }
@@ -310,9 +308,6 @@ impl<'gctx> Workspace<'gctx> {
             ResolveBehavior::V1 | ResolveBehavior::V2 => {}
             ResolveBehavior::V3 => {
                 if self.resolve_behavior == ResolveBehavior::V3 {
-                    if !self.gctx().cli_unstable().msrv_policy {
-                        anyhow::bail!("`resolver=\"3\"` requires `-Zmsrv-policy`");
-                    }
                     self.resolve_honors_rust_version = true;
                 }
             }
@@ -652,18 +647,14 @@ impl<'gctx> Workspace<'gctx> {
         self.members().filter_map(|pkg| pkg.rust_version()).min()
     }
 
-    pub fn set_honor_rust_version(&mut self, honor_rust_version: Option<bool>) {
-        self.honor_rust_version = honor_rust_version;
-    }
-
-    pub fn honor_rust_version(&self) -> Option<bool> {
-        self.honor_rust_version
+    pub fn set_resolve_honors_rust_version(&mut self, honor_rust_version: Option<bool>) {
+        if let Some(honor_rust_version) = honor_rust_version {
+            self.resolve_honors_rust_version = honor_rust_version;
+        }
     }
 
     pub fn resolve_honors_rust_version(&self) -> bool {
-        // Give CLI precedence
-        self.honor_rust_version
-            .unwrap_or(self.resolve_honors_rust_version)
+        self.resolve_honors_rust_version
     }
 
     pub fn custom_metadata(&self) -> Option<&toml::Value> {
@@ -1156,10 +1147,27 @@ impl<'gctx> Workspace<'gctx> {
     }
 
     pub fn emit_warnings(&self) -> CargoResult<()> {
+        let ws_lints = self
+            .root_maybe()
+            .workspace_config()
+            .inheritable()
+            .and_then(|i| i.lints().ok())
+            .unwrap_or_default();
+
+        let ws_cargo_lints = ws_lints
+            .get("cargo")
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(k, v)| (k.replace('-', "_"), v))
+            .collect();
+
         for (path, maybe_pkg) in &self.packages.packages {
             let path = path.join("Cargo.toml");
             if let MaybePackage::Package(pkg) = maybe_pkg {
-                self.emit_lints(pkg, &path)?
+                if self.gctx.cli_unstable().cargo_lints {
+                    self.emit_lints(pkg, &path, &ws_cargo_lints)?
+                }
             }
             let warnings = match maybe_pkg {
                 MaybePackage::Package(pkg) => pkg.manifest().warnings().warnings(),
@@ -1186,7 +1194,12 @@ impl<'gctx> Workspace<'gctx> {
         Ok(())
     }
 
-    pub fn emit_lints(&self, pkg: &Package, path: &Path) -> CargoResult<()> {
+    pub fn emit_lints(
+        &self,
+        pkg: &Package,
+        path: &Path,
+        ws_cargo_lints: &manifest::TomlToolLints,
+    ) -> CargoResult<()> {
         let mut error_count = 0;
         let toml_lints = pkg
             .manifest()
@@ -1204,8 +1217,40 @@ impl<'gctx> Workspace<'gctx> {
             .map(|(name, lint)| (name.replace('-', "_"), lint))
             .collect();
 
-        check_implicit_features(pkg, &path, &normalized_lints, &mut error_count, self.gctx)?;
-        unused_dependencies(pkg, &path, &normalized_lints, &mut error_count, self.gctx)?;
+        // We should only be using workspace lints if the `[lints]` table is
+        // present in the manifest, and `workspace` is set to `true`
+        let ws_cargo_lints = pkg
+            .manifest()
+            .resolved_toml()
+            .lints
+            .as_ref()
+            .is_some_and(|l| l.workspace)
+            .then(|| ws_cargo_lints);
+
+        check_im_a_teapot(
+            pkg,
+            &path,
+            &normalized_lints,
+            ws_cargo_lints,
+            &mut error_count,
+            self.gctx,
+        )?;
+        check_implicit_features(
+            pkg,
+            &path,
+            &normalized_lints,
+            ws_cargo_lints,
+            &mut error_count,
+            self.gctx,
+        )?;
+        unused_dependencies(
+            pkg,
+            &path,
+            &normalized_lints,
+            ws_cargo_lints,
+            &mut error_count,
+            self.gctx,
+        )?;
         if error_count > 0 {
             Err(crate::util::errors::AlreadyPrintedError::new(anyhow!(
                 "encountered {error_count} errors(s) while running lints"

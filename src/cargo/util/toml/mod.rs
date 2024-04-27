@@ -306,6 +306,8 @@ fn resolve_toml(
     };
 
     if let Some(original_package) = original_toml.package() {
+        let package_name = &original_package.name;
+
         let resolved_package =
             resolve_package_toml(original_package, features, package_root, &inherit)?;
         let edition = resolved_package
@@ -341,6 +343,15 @@ fn resolve_toml(
             package_root,
             warnings,
         )?;
+        deprecated_underscore(
+            &original_toml.dev_dependencies2,
+            &original_toml.dev_dependencies,
+            "dev-dependencies",
+            package_name,
+            "package",
+            edition,
+            warnings,
+        )?;
         resolved_toml.dev_dependencies = resolve_dependencies(
             gctx,
             edition,
@@ -350,6 +361,15 @@ fn resolve_toml(
             Some(DepKind::Development),
             &inherit,
             package_root,
+            warnings,
+        )?;
+        deprecated_underscore(
+            &original_toml.build_dependencies2,
+            &original_toml.build_dependencies,
+            "build-dependencies",
+            package_name,
+            "package",
+            edition,
             warnings,
         )?;
         resolved_toml.build_dependencies = resolve_dependencies(
@@ -376,6 +396,15 @@ fn resolve_toml(
                 package_root,
                 warnings,
             )?;
+            deprecated_underscore(
+                &platform.dev_dependencies2,
+                &platform.dev_dependencies,
+                "dev-dependencies",
+                name,
+                "platform target",
+                edition,
+                warnings,
+            )?;
             let resolved_dev_dependencies = resolve_dependencies(
                 gctx,
                 edition,
@@ -385,6 +414,15 @@ fn resolve_toml(
                 Some(DepKind::Development),
                 &inherit,
                 package_root,
+                warnings,
+            )?;
+            deprecated_underscore(
+                &platform.build_dependencies2,
+                &platform.build_dependencies,
+                "build-dependencies",
+                name,
+                "platform target",
+                edition,
                 warnings,
             )?;
             let resolved_build_dependencies = resolve_dependencies(
@@ -411,15 +449,7 @@ fn resolve_toml(
         }
         resolved_toml.target = (!resolved_target.is_empty()).then_some(resolved_target);
 
-        let resolved_lints = original_toml
-            .lints
-            .clone()
-            .map(|value| lints_inherit_with(value, || inherit()?.lints()))
-            .transpose()?;
-        resolved_toml.lints = resolved_lints.map(|lints| manifest::InheritableLints {
-            workspace: false,
-            lints,
-        });
+        resolved_toml.lints = original_toml.lints.clone();
 
         let resolved_badges = original_toml
             .badges
@@ -625,6 +655,15 @@ fn resolve_dependencies<'a>(
         let mut resolved =
             dependency_inherit_with(v.clone(), name_in_toml, inherit, package_root, warnings)?;
         if let manifest::TomlDependency::Detailed(ref mut d) = resolved {
+            deprecated_underscore(
+                &d.default_features2,
+                &d.default_features,
+                "default-features",
+                name_in_toml,
+                "dependency",
+                edition,
+                warnings,
+            )?;
             if d.public.is_some() {
                 let public_feature = features.require(Feature::public_dependency());
                 let with_public_feature = public_feature.is_ok();
@@ -803,7 +842,7 @@ impl InheritableFields {
     }
 
     /// Gets the field `workspace.lint`.
-    fn lints(&self) -> CargoResult<manifest::TomlLints> {
+    pub fn lints(&self) -> CargoResult<manifest::TomlLints> {
         let Some(val) = &self.lints else {
             bail!("`workspace.lints` was not defined");
         };
@@ -903,9 +942,6 @@ fn inner_dependency_inherit_with<'a>(
                 {ws_def_feat} for `workspace.dependencies.{label}`, \
                 this could become a hard error in the future"
         ))
-    }
-    if dependency.default_features.is_some() && dependency.default_features2.is_some() {
-        warn_on_deprecated("default-features", name, "dependency", warnings);
     }
     inherit()?.get_dependency(name, package_root).map(|d| {
         match d {
@@ -1157,18 +1193,12 @@ fn to_real_manifest(
     }
 
     validate_dependencies(original_toml.dependencies.as_ref(), None, None, warnings)?;
-    if original_toml.dev_dependencies.is_some() && original_toml.dev_dependencies2.is_some() {
-        warn_on_deprecated("dev-dependencies", package_name, "package", warnings);
-    }
     validate_dependencies(
         original_toml.dev_dependencies(),
         None,
         Some(DepKind::Development),
         warnings,
     )?;
-    if original_toml.build_dependencies.is_some() && original_toml.build_dependencies2.is_some() {
-        warn_on_deprecated("build-dependencies", package_name, "package", warnings);
-    }
     validate_dependencies(
         original_toml.build_dependencies(),
         None,
@@ -1185,18 +1215,12 @@ fn to_real_manifest(
             None,
             warnings,
         )?;
-        if platform.build_dependencies.is_some() && platform.build_dependencies2.is_some() {
-            warn_on_deprecated("build-dependencies", name, "platform target", warnings);
-        }
         validate_dependencies(
             platform.build_dependencies(),
             platform_kind.as_ref(),
             Some(DepKind::Build),
             warnings,
         )?;
-        if platform.dev_dependencies.is_some() && platform.dev_dependencies2.is_some() {
-            warn_on_deprecated("dev-dependencies", name, "platform target", warnings);
-        }
         validate_dependencies(
             platform.dev_dependencies(),
             platform_kind.as_ref(),
@@ -1259,18 +1283,18 @@ fn to_real_manifest(
         }
     }
 
-    verify_lints(
-        resolved_toml.resolved_lints().expect("previously resolved"),
-        gctx,
-        warnings,
-    )?;
-    let default = manifest::TomlLints::default();
-    let rustflags = lints_to_rustflags(
-        resolved_toml
-            .resolved_lints()
-            .expect("previously resolved")
-            .unwrap_or(&default),
-    );
+    let resolved_lints = resolved_toml
+        .lints
+        .clone()
+        .map(|value| {
+            lints_inherit_with(value, || {
+                load_inheritable_fields(gctx, manifest_file, &workspace_config)?.lints()
+            })
+        })
+        .transpose()?;
+
+    verify_lints(resolved_lints.as_ref(), gctx, warnings)?;
+    let rustflags = lints_to_rustflags(&resolved_lints.unwrap_or_default());
 
     let metadata = ManifestMetadata {
         description: resolved_package
@@ -1793,90 +1817,7 @@ fn detailed_dep_to_dependency<P: ResolveToPath + Clone>(
         }
     }
 
-    let new_source_id = match (
-        orig.git.as_ref(),
-        orig.path.as_ref(),
-        orig.registry.as_ref(),
-        orig.registry_index.as_ref(),
-    ) {
-        (Some(_), _, Some(_), _) | (Some(_), _, _, Some(_)) => bail!(
-            "dependency ({}) specification is ambiguous. \
-                 Only one of `git` or `registry` is allowed.",
-            name_in_toml
-        ),
-        (_, _, Some(_), Some(_)) => bail!(
-            "dependency ({}) specification is ambiguous. \
-                 Only one of `registry` or `registry-index` is allowed.",
-            name_in_toml
-        ),
-        (Some(git), maybe_path, _, _) => {
-            if maybe_path.is_some() {
-                bail!(
-                    "dependency ({}) specification is ambiguous. \
-                         Only one of `git` or `path` is allowed.",
-                    name_in_toml
-                );
-            }
-
-            let n_details = [&orig.branch, &orig.tag, &orig.rev]
-                .iter()
-                .filter(|d| d.is_some())
-                .count();
-
-            if n_details > 1 {
-                bail!(
-                    "dependency ({}) specification is ambiguous. \
-                         Only one of `branch`, `tag` or `rev` is allowed.",
-                    name_in_toml
-                );
-            }
-
-            let reference = orig
-                .branch
-                .clone()
-                .map(GitReference::Branch)
-                .or_else(|| orig.tag.clone().map(GitReference::Tag))
-                .or_else(|| orig.rev.clone().map(GitReference::Rev))
-                .unwrap_or(GitReference::DefaultBranch);
-            let loc = git.into_url()?;
-
-            if let Some(fragment) = loc.fragment() {
-                let msg = format!(
-                    "URL fragment `#{}` in git URL is ignored for dependency ({}). \
-                        If you were trying to specify a specific git revision, \
-                        use `rev = \"{}\"` in the dependency declaration.",
-                    fragment, name_in_toml, fragment
-                );
-                manifest_ctx.warnings.push(msg)
-            }
-
-            SourceId::for_git(&loc, reference)?
-        }
-        (None, Some(path), _, _) => {
-            let path = path.resolve(manifest_ctx.gctx);
-            // If the source ID for the package we're parsing is a path
-            // source, then we normalize the path here to get rid of
-            // components like `..`.
-            //
-            // The purpose of this is to get a canonical ID for the package
-            // that we're depending on to ensure that builds of this package
-            // always end up hashing to the same value no matter where it's
-            // built from.
-            if manifest_ctx.source_id.is_path() {
-                let path = manifest_ctx.root.join(path);
-                let path = paths::normalize_path(&path);
-                SourceId::for_path(&path)?
-            } else {
-                manifest_ctx.source_id
-            }
-        }
-        (None, None, Some(registry), None) => SourceId::alt_registry(manifest_ctx.gctx, registry)?,
-        (None, None, None, Some(registry_index)) => {
-            let url = registry_index.into_url()?;
-            SourceId::for_registry(&url)?
-        }
-        (None, None, None, None) => SourceId::crates_io(manifest_ctx.gctx)?,
-    };
+    let new_source_id = to_dependency_source_id(orig, name_in_toml, manifest_ctx)?;
 
     let (pkg_name, explicit_name_in_toml) = match orig.package {
         Some(ref s) => (&s[..], Some(name_in_toml)),
@@ -1885,14 +1826,6 @@ fn detailed_dep_to_dependency<P: ResolveToPath + Clone>(
 
     let version = orig.version.as_deref();
     let mut dep = Dependency::parse(pkg_name, version, new_source_id)?;
-    if orig.default_features.is_some() && orig.default_features2.is_some() {
-        warn_on_deprecated(
-            "default-features",
-            name_in_toml,
-            "dependency",
-            manifest_ctx.warnings,
-        );
-    }
     dep.set_features(orig.features.iter().flatten())
         .set_default_features(orig.default_features().unwrap_or(true))
         .set_optional(orig.optional.unwrap_or(false))
@@ -1953,6 +1886,91 @@ fn detailed_dep_to_dependency<P: ResolveToPath + Clone>(
         }
     }
     Ok(dep)
+}
+
+fn to_dependency_source_id<P: ResolveToPath + Clone>(
+    orig: &manifest::TomlDetailedDependency<P>,
+    name_in_toml: &str,
+    manifest_ctx: &mut ManifestContext<'_, '_>,
+) -> CargoResult<SourceId> {
+    match (
+        orig.git.as_ref(),
+        orig.path.as_ref(),
+        orig.registry.as_deref(),
+        orig.registry_index.as_ref(),
+    ) {
+        (Some(_git), _, Some(_registry), _) | (Some(_git), _, _, Some(_registry)) => bail!(
+            "dependency ({name_in_toml}) specification is ambiguous. \
+                 Only one of `git` or `registry` is allowed.",
+        ),
+        (_, _, Some(_registry), Some(_registry_index)) => bail!(
+            "dependency ({name_in_toml}) specification is ambiguous. \
+                 Only one of `registry` or `registry-index` is allowed.",
+        ),
+        (Some(_git), Some(_path), None, None) => {
+            bail!(
+                "dependency ({name_in_toml}) specification is ambiguous. \
+                     Only one of `git` or `path` is allowed.",
+            );
+        }
+        (Some(git), None, None, None) => {
+            let n_details = [&orig.branch, &orig.tag, &orig.rev]
+                .iter()
+                .filter(|d| d.is_some())
+                .count();
+
+            if n_details > 1 {
+                bail!(
+                    "dependency ({name_in_toml}) specification is ambiguous. \
+                         Only one of `branch`, `tag` or `rev` is allowed.",
+                );
+            }
+
+            let reference = orig
+                .branch
+                .clone()
+                .map(GitReference::Branch)
+                .or_else(|| orig.tag.clone().map(GitReference::Tag))
+                .or_else(|| orig.rev.clone().map(GitReference::Rev))
+                .unwrap_or(GitReference::DefaultBranch);
+            let loc = git.into_url()?;
+
+            if let Some(fragment) = loc.fragment() {
+                let msg = format!(
+                    "URL fragment `#{fragment}` in git URL is ignored for dependency ({name_in_toml}). \
+                        If you were trying to specify a specific git revision, \
+                        use `rev = \"{fragment}\"` in the dependency declaration.",
+                );
+                manifest_ctx.warnings.push(msg);
+            }
+
+            SourceId::for_git(&loc, reference)
+        }
+        (None, Some(path), _, _) => {
+            let path = path.resolve(manifest_ctx.gctx);
+            // If the source ID for the package we're parsing is a path
+            // source, then we normalize the path here to get rid of
+            // components like `..`.
+            //
+            // The purpose of this is to get a canonical ID for the package
+            // that we're depending on to ensure that builds of this package
+            // always end up hashing to the same value no matter where it's
+            // built from.
+            if manifest_ctx.source_id.is_path() {
+                let path = manifest_ctx.root.join(path);
+                let path = paths::normalize_path(&path);
+                SourceId::for_path(&path)
+            } else {
+                Ok(manifest_ctx.source_id)
+            }
+        }
+        (None, None, Some(registry), None) => SourceId::alt_registry(manifest_ctx.gctx, registry),
+        (None, None, None, Some(registry_index)) => {
+            let url = registry_index.into_url()?;
+            SourceId::for_registry(&url)
+        }
+        (None, None, None, None) => SourceId::crates_io(manifest_ctx.gctx),
+    }
 }
 
 pub trait ResolveToPath {
@@ -2304,12 +2322,28 @@ fn emit_diagnostic(
 }
 
 /// Warn about paths that have been deprecated and may conflict.
-fn warn_on_deprecated(new_path: &str, name: &str, kind: &str, warnings: &mut Vec<String>) {
+fn deprecated_underscore<T>(
+    old: &Option<T>,
+    new: &Option<T>,
+    new_path: &str,
+    name: &str,
+    kind: &str,
+    edition: Edition,
+    warnings: &mut Vec<String>,
+) -> CargoResult<()> {
     let old_path = new_path.replace("-", "_");
-    warnings.push(format!(
-        "conflicting between `{new_path}` and `{old_path}` in the `{name}` {kind}.\n
-        `{old_path}` is ignored and not recommended for use in the future"
-    ))
+    if old.is_some() && Edition::Edition2024 <= edition {
+        anyhow::bail!("`{old_path}` is unsupported as of the 2024 edition; instead use `{new_path}`\n(in the `{name}` {kind})");
+    } else if old.is_some() && new.is_some() {
+        warnings.push(format!(
+            "`{old_path}` is redundant with `{new_path}`, preferring `{new_path}` in the `{name}` {kind}"
+        ))
+    } else if old.is_some() {
+        warnings.push(format!(
+            "`{old_path}` is deprecated in favor of `{new_path}` and will not work in the 2024 edition\n(in the `{name}` {kind})"
+        ))
+    }
+    Ok(())
 }
 
 fn warn_on_unused(unused: &BTreeSet<String>, warnings: &mut Vec<String>) {

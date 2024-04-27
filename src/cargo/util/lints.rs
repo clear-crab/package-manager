@@ -68,6 +68,13 @@ pub struct LintGroup {
     pub edition_lint_opts: Option<(Edition, LintLevel)>,
 }
 
+const TEST_DUMMY_UNSTABLE: LintGroup = LintGroup {
+    name: "test_dummy_unstable",
+    desc: "test_dummy_unstable is meant to only be used in tests",
+    default_level: LintLevel::Allow,
+    edition_lint_opts: None,
+};
+
 #[derive(Copy, Clone, Debug)]
 pub struct Lint {
     pub name: &'static str,
@@ -78,26 +85,41 @@ pub struct Lint {
 }
 
 impl Lint {
-    pub fn level(&self, lints: &TomlToolLints, edition: Edition) -> LintLevel {
-        let level = self
-            .groups
+    pub fn level(
+        &self,
+        pkg_lints: &TomlToolLints,
+        ws_lints: Option<&TomlToolLints>,
+        edition: Edition,
+    ) -> (LintLevel, LintLevelReason) {
+        self.groups
             .iter()
-            .map(|g| g.name)
-            .chain(std::iter::once(self.name))
-            .filter_map(|n| lints.get(n).map(|l| (n, l)))
-            .max_by_key(|(n, l)| (l.priority(), std::cmp::Reverse(*n)));
-
-        match level {
-            Some((_, toml_lint)) => toml_lint.level().into(),
-            None => {
-                if let Some((lint_edition, lint_level)) = self.edition_lint_opts {
-                    if edition >= lint_edition {
-                        return lint_level;
-                    }
-                }
-                self.default_level
-            }
-        }
+            .map(|g| {
+                (
+                    g.name,
+                    level_priority(
+                        g.name,
+                        g.default_level,
+                        g.edition_lint_opts,
+                        pkg_lints,
+                        ws_lints,
+                        edition,
+                    ),
+                )
+            })
+            .chain(std::iter::once((
+                self.name,
+                level_priority(
+                    self.name,
+                    self.default_level,
+                    self.edition_lint_opts,
+                    pkg_lints,
+                    ws_lints,
+                    edition,
+                ),
+            )))
+            .max_by_key(|(n, (l, _, p))| (l == &LintLevel::Forbid, *p, std::cmp::Reverse(*n)))
+            .map(|(_, (l, r, _))| (l, r))
+            .unwrap()
     }
 }
 
@@ -123,7 +145,7 @@ impl Display for LintLevel {
 impl LintLevel {
     pub fn to_diagnostic_level(self) -> Level {
         match self {
-            LintLevel::Allow => Level::Note,
+            LintLevel::Allow => unreachable!("allow does not map to a diagnostic level"),
             LintLevel::Warn => Level::Warning,
             LintLevel::Deny => Level::Error,
             LintLevel::Forbid => Level::Error,
@@ -140,6 +162,123 @@ impl From<TomlLintLevel> for LintLevel {
             TomlLintLevel::Forbid => LintLevel::Forbid,
         }
     }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum LintLevelReason {
+    Default,
+    Edition(Edition),
+    Package,
+    Workspace,
+}
+
+impl Display for LintLevelReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LintLevelReason::Default => write!(f, "by default"),
+            LintLevelReason::Edition(edition) => write!(f, "in edition {}", edition),
+            LintLevelReason::Package => write!(f, "in `[lints]`"),
+            LintLevelReason::Workspace => write!(f, "in `[workspace.lints]`"),
+        }
+    }
+}
+
+fn level_priority(
+    name: &str,
+    default_level: LintLevel,
+    edition_lint_opts: Option<(Edition, LintLevel)>,
+    pkg_lints: &TomlToolLints,
+    ws_lints: Option<&TomlToolLints>,
+    edition: Edition,
+) -> (LintLevel, LintLevelReason, i8) {
+    let (unspecified_level, reason) = if let Some(level) = edition_lint_opts
+        .filter(|(e, _)| edition >= *e)
+        .map(|(_, l)| l)
+    {
+        (level, LintLevelReason::Edition(edition))
+    } else {
+        (default_level, LintLevelReason::Default)
+    };
+
+    // Don't allow the group to be overridden if the level is `Forbid`
+    if unspecified_level == LintLevel::Forbid {
+        return (unspecified_level, reason, 0);
+    }
+
+    if let Some(defined_level) = pkg_lints.get(name) {
+        (
+            defined_level.level().into(),
+            LintLevelReason::Package,
+            defined_level.priority(),
+        )
+    } else if let Some(defined_level) = ws_lints.and_then(|l| l.get(name)) {
+        (
+            defined_level.level().into(),
+            LintLevelReason::Workspace,
+            defined_level.priority(),
+        )
+    } else {
+        (unspecified_level, reason, 0)
+    }
+}
+
+const IM_A_TEAPOT: Lint = Lint {
+    name: "im_a_teapot",
+    desc: "`im_a_teapot` is specified",
+    groups: &[TEST_DUMMY_UNSTABLE],
+    default_level: LintLevel::Allow,
+    edition_lint_opts: None,
+};
+
+pub fn check_im_a_teapot(
+    pkg: &Package,
+    path: &Path,
+    pkg_lints: &TomlToolLints,
+    ws_lints: Option<&TomlToolLints>,
+    error_count: &mut usize,
+    gctx: &GlobalContext,
+) -> CargoResult<()> {
+    let manifest = pkg.manifest();
+    let (lint_level, reason) = IM_A_TEAPOT.level(pkg_lints, ws_lints, manifest.edition());
+    if lint_level == LintLevel::Allow {
+        return Ok(());
+    }
+
+    if manifest
+        .resolved_toml()
+        .package()
+        .is_some_and(|p| p.im_a_teapot.is_some())
+    {
+        if lint_level == LintLevel::Forbid || lint_level == LintLevel::Deny {
+            *error_count += 1;
+        }
+        let level = lint_level.to_diagnostic_level();
+        let manifest_path = rel_cwd_manifest_path(path, gctx);
+        let emitted_reason = format!(
+            "`cargo::{}` is set to `{lint_level}` {reason}",
+            IM_A_TEAPOT.name
+        );
+
+        let key_span = get_span(manifest.document(), &["package", "im-a-teapot"], false).unwrap();
+        let value_span = get_span(manifest.document(), &["package", "im-a-teapot"], true).unwrap();
+        let message = level
+            .title(IM_A_TEAPOT.desc)
+            .snippet(
+                Snippet::source(manifest.contents())
+                    .origin(&manifest_path)
+                    .annotation(level.span(key_span.start..value_span.end))
+                    .fold(true),
+            )
+            .footer(Level::Note.title(&emitted_reason));
+        let renderer = Renderer::styled().term_width(
+            gctx.shell()
+                .err_width()
+                .diagnostic_terminal_width()
+                .unwrap_or(annotate_snippets::renderer::DEFAULT_TERM_WIDTH),
+        );
+        writeln!(gctx.shell().err(), "{}", renderer.render(message))?;
+    }
+    Ok(())
 }
 
 /// By default, cargo will treat any optional dependency as a [feature]. As of
@@ -166,7 +305,8 @@ const IMPLICIT_FEATURES: Lint = Lint {
 pub fn check_implicit_features(
     pkg: &Package,
     path: &Path,
-    lints: &TomlToolLints,
+    pkg_lints: &TomlToolLints,
+    ws_lints: Option<&TomlToolLints>,
     error_count: &mut usize,
     gctx: &GlobalContext,
 ) -> CargoResult<()> {
@@ -177,7 +317,7 @@ pub fn check_implicit_features(
         return Ok(());
     }
 
-    let lint_level = IMPLICIT_FEATURES.level(lints, edition);
+    let (lint_level, reason) = IMPLICIT_FEATURES.level(pkg_lints, ws_lints, edition);
     if lint_level == LintLevel::Allow {
         return Ok(());
     }
@@ -222,7 +362,7 @@ pub fn check_implicit_features(
         );
         if emitted_source.is_none() {
             emitted_source = Some(format!(
-                "`cargo::{}` is set to `{lint_level}`",
+                "`cargo::{}` is set to `{lint_level}` {reason}",
                 IMPLICIT_FEATURES.name
             ));
             message = message.footer(Level::Note.title(emitted_source.as_ref().unwrap()));
@@ -249,7 +389,8 @@ const UNUSED_OPTIONAL_DEPENDENCY: Lint = Lint {
 pub fn unused_dependencies(
     pkg: &Package,
     path: &Path,
-    lints: &TomlToolLints,
+    pkg_lints: &TomlToolLints,
+    ws_lints: Option<&TomlToolLints>,
     error_count: &mut usize,
     gctx: &GlobalContext,
 ) -> CargoResult<()> {
@@ -259,7 +400,7 @@ pub fn unused_dependencies(
         return Ok(());
     }
 
-    let lint_level = UNUSED_OPTIONAL_DEPENDENCY.level(lints, edition);
+    let (lint_level, reason) = UNUSED_OPTIONAL_DEPENDENCY.level(pkg_lints, ws_lints, edition);
     if lint_level == LintLevel::Allow {
         return Ok(());
     }
@@ -325,7 +466,7 @@ pub fn unused_dependencies(
                     );
                     if emitted_source.is_none() {
                         emitted_source = Some(format!(
-                            "`cargo::{}` is set to `{lint_level}`",
+                            "`cargo::{}` is set to `{lint_level}` {reason}",
                             UNUSED_OPTIONAL_DEPENDENCY.name
                         ));
                         message =
