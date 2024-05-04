@@ -105,13 +105,12 @@ fn fail_on_invalid_tool() {
         .build();
 
     foo.cargo("check")
-        .with_status(101)
         .with_stderr(
             "\
-[..]
-
-Caused by:
-  unsupported `super-awesome-linter` in `[lints]`, must be one of cargo, clippy, rust, rustdoc
+[WARNING] [CWD]/Cargo.toml: unrecognized lint tool `lints.super-awesome-linter`, specifying unrecognized tools may break in the future.
+supported tools: cargo, clippy, rust, rustdoc
+[CHECKING] foo v0.0.1 ([CWD])
+[FINISHED] [..]
 ",
         )
         .run();
@@ -763,7 +762,6 @@ edition = "2015"
 authors = []
 
 [lints.cargo]
-im-a-teapot = "warn"
             "#,
         )
         .file("src/lib.rs", "")
@@ -800,7 +798,6 @@ authors = []
 im-a-teapot = true
 
 [lints.cargo]
-im-a-teapot = "warn"
             "#,
         )
         .file("src/lib.rs", "")
@@ -836,7 +833,7 @@ authors = []
 im-a-teapot = true
 
 [lints.cargo]
-im-a-teapot = "warn"
+im_a_teapot = "warn"
             "#,
         )
         .file("src/lib.rs", "")
@@ -861,7 +858,7 @@ warning: `im_a_teapot` is specified
 }
 
 #[cargo_test]
-fn cargo_lints_underscore_supported() {
+fn cargo_lints_dashes_dont_get_rewritten() {
     let foo = project()
         .file(
             "Cargo.toml",
@@ -876,7 +873,7 @@ authors = []
 im-a-teapot = true
 
 [lints.cargo]
-im_a_teapot = "warn"
+im-a-teapot = "warn"
             "#,
         )
         .file("src/lib.rs", "")
@@ -886,13 +883,14 @@ im_a_teapot = "warn"
         .masquerade_as_nightly_cargo(&["cargo-lints", "test-dummy-unstable"])
         .with_stderr(
             "\
-warning: `im_a_teapot` is specified
- --> Cargo.toml:9:1
-  |
-9 | im-a-teapot = true
-  | ------------------
-  |
-  = note: `cargo::im_a_teapot` is set to `warn` in `[lints]`
+warning: unknown lint: `im-a-teapot`
+  --> Cargo.toml:12:1
+   |
+12 | im-a-teapot = \"warn\"
+   | ^^^^^^^^^^^
+   |
+   = note: `cargo::unknown_lints` is set to `warn` by default
+   = help: there is a lint with a similar name: `im_a_teapot`
 [CHECKING] foo v0.0.1 ([CWD])
 [FINISHED] [..]
 ",
@@ -916,8 +914,8 @@ authors = []
 im-a-teapot = true
 
 [lints.cargo]
-im-a-teapot = { level = "warn", priority = 10 }
-test-dummy-unstable = { level = "forbid", priority = -1 }
+im_a_teapot = { level = "warn", priority = 10 }
+test_dummy_unstable = { level = "forbid", priority = -1 }
             "#,
         )
         .file("src/lib.rs", "")
@@ -949,8 +947,8 @@ fn workspace_cargo_lints() {
 cargo-features = ["test-dummy-unstable"]
 
 [workspace.lints.cargo]
-im-a-teapot = { level = "warn", priority = 10 }
-test-dummy-unstable = { level = "forbid", priority = -1 }
+im_a_teapot = { level = "warn", priority = 10 }
+test_dummy_unstable = { level = "forbid", priority = -1 }
 
 [package]
 name = "foo"
@@ -977,7 +975,7 @@ error: `im_a_teapot` is specified
 13 | im-a-teapot = true
    | ^^^^^^^^^^^^^^^^^^
    |
-   = note: `cargo::im_a_teapot` is set to `forbid` in `[workspace.lints]`
+   = note: `cargo::im_a_teapot` is set to `forbid` in `[lints]`
 ",
         )
         .run();
@@ -993,7 +991,7 @@ fn dont_always_inherit_workspace_lints() {
 members = ["foo"]
 
 [workspace.lints.cargo]
-im-a-teapot = "warn"
+im_a_teapot = "warn"
 "#,
         )
         .file(
@@ -1018,6 +1016,166 @@ im-a-teapot = true
             "\
 [CHECKING] foo v0.0.1 ([CWD]/foo)
 [FINISHED] [..]
+",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn cargo_lints_cap_lints() {
+    Package::new("baz", "0.1.0").publish();
+    Package::new("bar", "0.1.0")
+        .file(
+            "Cargo.toml",
+            r#"
+[package]
+name = "bar"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+baz = { version = "0.1.0", optional = true }
+
+[lints.cargo]
+implicit_features = "warn"
+"#,
+        )
+        .file("src/lib.rs", "")
+        .publish();
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+[package]
+name = "foo"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bar = "0.1.0"
+
+[lints.cargo]
+implicit_features = "warn"
+"#,
+        )
+        .file("src/lib.rs", "")
+        .build();
+
+    p.cargo("check -Zcargo-lints")
+        .masquerade_as_nightly_cargo(&["cargo-lints"])
+        .with_stderr(
+            "\
+[UPDATING] [..]
+[LOCKING] 2 packages to latest compatible versions
+[DOWNLOADING] crates ...
+[DOWNLOADED] bar v0.1.0 ([..])
+[CHECKING] bar v0.1.0
+[CHECKING] foo v0.1.0 ([CWD])
+[FINISHED] [..]
+",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn check_feature_gated() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+[package]
+name = "foo"
+version = "0.0.1"
+edition = "2015"
+authors = []
+
+[lints.cargo]
+im_a_teapot = "warn"
+            "#,
+        )
+        .file("src/lib.rs", "")
+        .build();
+
+    p.cargo("check -Zcargo-lints")
+        .masquerade_as_nightly_cargo(&["cargo-lints"])
+        .with_status(101)
+        .with_stderr(
+            "\
+error: use of unstable lint `im_a_teapot`
+ --> Cargo.toml:9:1
+  |
+9 | im_a_teapot = \"warn\"
+  | ^^^^^^^^^^^ this is behind `test-dummy-unstable`, which is not enabled
+  |
+  = help: consider adding `cargo-features = [\"test-dummy-unstable\"]` to the top of the manifest
+error: encountered 1 errors(s) while verifying lints
+",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn check_feature_gated_workspace() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+[workspace]
+members = ["foo"]
+
+[workspace.lints.cargo]
+im_a_teapot = { level = "warn", priority = 10 }
+test_dummy_unstable = { level = "forbid", priority = -1 }
+            "#,
+        )
+        .file(
+            "foo/Cargo.toml",
+            r#"
+[package]
+name = "foo"
+version = "0.0.1"
+edition = "2015"
+authors = []
+
+[lints]
+workspace = true
+            "#,
+        )
+        .file("foo/src/lib.rs", "")
+        .build();
+
+    p.cargo("check -Zcargo-lints")
+        .masquerade_as_nightly_cargo(&["cargo-lints"])
+        .with_status(101)
+        .with_stderr(
+            "\
+error: use of unstable lint `im_a_teapot`
+ --> Cargo.toml:6:1
+  |
+6 | im_a_teapot = { level = \"warn\", priority = 10 }
+  | ^^^^^^^^^^^ this is behind `test-dummy-unstable`, which is not enabled
+  |
+note: `cargo::im_a_teapot` was inherited
+ --> foo/Cargo.toml:9:1
+  |
+9 | workspace = true
+  | ----------------
+  |
+  = help: consider adding `cargo-features = [\"test-dummy-unstable\"]` to the top of the manifest
+error: use of unstable lint `test_dummy_unstable`
+ --> Cargo.toml:7:1
+  |
+7 | test_dummy_unstable = { level = \"forbid\", priority = -1 }
+  | ^^^^^^^^^^^^^^^^^^^ this is behind `test-dummy-unstable`, which is not enabled
+  |
+note: `cargo::test_dummy_unstable` was inherited
+ --> foo/Cargo.toml:9:1
+  |
+9 | workspace = true
+  | ----------------
+  |
+  = help: consider adding `cargo-features = [\"test-dummy-unstable\"]` to the top of the manifest
+error: encountered 2 errors(s) while verifying lints
 ",
         )
         .run();

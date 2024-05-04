@@ -27,7 +27,7 @@
 //!   * Good for: `.cargo/config.toml`, `config.json` index file (gate: `-Z`)
 //!
 //! For features that touch multiple parts of Cargo, multiple feature gating strategies (error,
-//! warn, ignore) and mechnisms (`-Z`, `cargo-features`) may be used.
+//! warn, ignore) and mechanisms (`-Z`, `cargo-features`) may be used.
 //!
 //! When adding new tests for your feature, usually the tests should go into a
 //! new module of the testsuite named after the feature. See
@@ -343,7 +343,7 @@ impl FromStr for Edition {
     }
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 enum Status {
     Stable,
     Unstable,
@@ -387,11 +387,11 @@ macro_rules! features {
             $(
                 $(#[$attr])*
                 #[doc = concat!("\n\n\nSee <https://doc.rust-lang.org/nightly/cargo/", $docs, ">.")]
-                pub fn $feature() -> &'static Feature {
+                pub const fn $feature() -> &'static Feature {
                     fn get(features: &Features) -> bool {
                         stab!($stab) == Status::Stable || features.$feature
                     }
-                    static FEAT: Feature = Feature {
+                    const FEAT: Feature = Feature {
                         name: stringify!($feature),
                         stability: stab!($stab),
                         version: $version,
@@ -405,6 +405,10 @@ macro_rules! features {
             /// Whether this feature is allowed to use in the given [`Features`] context.
             fn is_enabled(&self, features: &Features) -> bool {
                 (self.get)(features)
+            }
+
+            pub(crate) fn name(&self) -> &str {
+                self.name
             }
         }
 
@@ -512,8 +516,9 @@ features! {
 }
 
 /// Status and metadata for a single unstable feature.
+#[derive(Debug)]
 pub struct Feature {
-    /// Feature name. This is valid Rust identifer so no dash only underscore.
+    /// Feature name. This is valid Rust identifier so no dash only underscore.
     name: &'static str,
     stability: Status,
     /// Version that this feature was stabilized or removed.
@@ -753,7 +758,6 @@ unstable_cli_options!(
     build_std: Option<Vec<String>>  = ("Enable Cargo to compile the standard library itself as part of a crate graph compilation"),
     build_std_features: Option<Vec<String>>  = ("Configure features enabled for the standard library itself when building the standard library"),
     cargo_lints: bool = ("Enable the `[lints.cargo]` table"),
-    check_cfg: bool = ("Enable compile-time checking of `cfg` names/values/features"),
     codegen_backend: bool = ("Enable the `codegen-backend` option in profiles in .cargo/config.toml file"),
     config_include: bool = ("Enable the `include` key in config files"),
     direct_minimal_versions: bool = ("Resolve minimal dependency versions instead of maximum (direct dependencies only)"),
@@ -854,6 +858,9 @@ const STABILIZED_REGISTRY_AUTH: &str =
     "Authenticated registries are available if a credential provider is configured.";
 
 const STABILIZED_LINTS: &str = "The `[lints]` table is now always available.";
+
+const STABILIZED_CHECK_CFG: &str =
+    "Compile-time checking of conditional (a.k.a. `-Zcheck-cfg`) is now always enabled.";
 
 fn deserialize_build_std<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
 where
@@ -1109,6 +1116,7 @@ impl CliUnstable {
             "credential-process" => stabilized_warn(k, "1.74", STABILIZED_CREDENTIAL_PROCESS),
             "lints" => stabilized_warn(k, "1.74", STABILIZED_LINTS),
             "registry-auth" => stabilized_warn(k, "1.74", STABILIZED_REGISTRY_AUTH),
+            "check-cfg" => stabilized_warn(k, "1.80", STABILIZED_CHECK_CFG),
 
             // Unstable features
             // Sorted alphabetically:
@@ -1122,9 +1130,6 @@ impl CliUnstable {
             }
             "build-std-features" => self.build_std_features = Some(parse_features(v)),
             "cargo-lints" => self.cargo_lints = parse_empty(k, v)?,
-            "check-cfg" => {
-                self.check_cfg = parse_empty(k, v)?;
-            }
             "codegen-backend" => self.codegen_backend = parse_empty(k, v)?,
             "config-include" => self.config_include = parse_empty(k, v)?,
             "direct-minimal-versions" => self.direct_minimal_versions = parse_empty(k, v)?,

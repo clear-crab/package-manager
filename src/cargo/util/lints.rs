@@ -1,9 +1,9 @@
 use crate::core::dependency::DepKind;
 use crate::core::FeatureValue::Dep;
-use crate::core::{Edition, FeatureValue, Package};
+use crate::core::{Edition, Feature, FeatureValue, Features, Manifest, Package};
 use crate::util::interning::InternedString;
 use crate::{CargoResult, GlobalContext};
-use annotate_snippets::{Level, Renderer, Snippet};
+use annotate_snippets::{Level, Snippet};
 use cargo_util_schemas::manifest::{TomlLintLevel, TomlToolLints};
 use pathdiff::diff_paths;
 use std::collections::HashSet;
@@ -12,11 +12,193 @@ use std::ops::Range;
 use std::path::Path;
 use toml_edit::ImDocument;
 
+const LINT_GROUPS: &[LintGroup] = &[TEST_DUMMY_UNSTABLE];
+const LINTS: &[Lint] = &[IM_A_TEAPOT, IMPLICIT_FEATURES, UNUSED_OPTIONAL_DEPENDENCY];
+
+pub fn analyze_cargo_lints_table(
+    pkg: &Package,
+    path: &Path,
+    pkg_lints: &TomlToolLints,
+    ws_contents: &str,
+    ws_document: &ImDocument<String>,
+    ws_path: &Path,
+    gctx: &GlobalContext,
+) -> CargoResult<()> {
+    let mut error_count = 0;
+    let manifest = pkg.manifest();
+    let manifest_path = rel_cwd_manifest_path(path, gctx);
+    let ws_path = rel_cwd_manifest_path(ws_path, gctx);
+    let mut unknown_lints = Vec::new();
+    for lint_name in pkg_lints.keys().map(|name| name) {
+        let Some((name, default_level, edition_lint_opts, feature_gate)) =
+            find_lint_or_group(lint_name)
+        else {
+            unknown_lints.push(lint_name);
+            continue;
+        };
+
+        let (_, reason, _) = level_priority(
+            name,
+            *default_level,
+            *edition_lint_opts,
+            pkg_lints,
+            manifest.edition(),
+        );
+
+        // Only run analysis on user-specified lints
+        if !reason.is_user_specified() {
+            continue;
+        }
+
+        // Only run this on lints that are gated by a feature
+        if let Some(feature_gate) = feature_gate {
+            verify_feature_enabled(
+                name,
+                feature_gate,
+                manifest,
+                &manifest_path,
+                ws_contents,
+                ws_document,
+                &ws_path,
+                &mut error_count,
+                gctx,
+            )?;
+        }
+    }
+
+    output_unknown_lints(
+        unknown_lints,
+        manifest,
+        &manifest_path,
+        pkg_lints,
+        ws_contents,
+        ws_document,
+        &ws_path,
+        &mut error_count,
+        gctx,
+    )?;
+
+    if error_count > 0 {
+        Err(anyhow::anyhow!(
+            "encountered {error_count} errors(s) while verifying lints",
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn find_lint_or_group<'a>(
+    name: &str,
+) -> Option<(
+    &'static str,
+    &LintLevel,
+    &Option<(Edition, LintLevel)>,
+    &Option<&'static Feature>,
+)> {
+    if let Some(lint) = LINTS.iter().find(|l| l.name == name) {
+        Some((
+            lint.name,
+            &lint.default_level,
+            &lint.edition_lint_opts,
+            &lint.feature_gate,
+        ))
+    } else if let Some(group) = LINT_GROUPS.iter().find(|g| g.name == name) {
+        Some((
+            group.name,
+            &group.default_level,
+            &group.edition_lint_opts,
+            &group.feature_gate,
+        ))
+    } else {
+        None
+    }
+}
+
+fn verify_feature_enabled(
+    lint_name: &str,
+    feature_gate: &Feature,
+    manifest: &Manifest,
+    manifest_path: &str,
+    ws_contents: &str,
+    ws_document: &ImDocument<String>,
+    ws_path: &str,
+    error_count: &mut usize,
+    gctx: &GlobalContext,
+) -> CargoResult<()> {
+    if !manifest.unstable_features().is_enabled(feature_gate) {
+        let dash_feature_name = feature_gate.name().replace("_", "-");
+        let title = format!("use of unstable lint `{}`", lint_name);
+        let label = format!(
+            "this is behind `{}`, which is not enabled",
+            dash_feature_name
+        );
+        let second_title = format!("`cargo::{}` was inherited", lint_name);
+        let help = format!(
+            "consider adding `cargo-features = [\"{}\"]` to the top of the manifest",
+            dash_feature_name
+        );
+
+        let message = if let Some(span) =
+            get_span(manifest.document(), &["lints", "cargo", lint_name], false)
+        {
+            Level::Error
+                .title(&title)
+                .snippet(
+                    Snippet::source(manifest.contents())
+                        .origin(&manifest_path)
+                        .annotation(Level::Error.span(span).label(&label))
+                        .fold(true),
+                )
+                .footer(Level::Help.title(&help))
+        } else {
+            let lint_span = get_span(
+                ws_document,
+                &["workspace", "lints", "cargo", lint_name],
+                false,
+            )
+            .expect(&format!(
+                "could not find `cargo::{lint_name}` in `[lints]`, or `[workspace.lints]` "
+            ));
+
+            let inherited_note = if let (Some(inherit_span_key), Some(inherit_span_value)) = (
+                get_span(manifest.document(), &["lints", "workspace"], false),
+                get_span(manifest.document(), &["lints", "workspace"], true),
+            ) {
+                Level::Note.title(&second_title).snippet(
+                    Snippet::source(manifest.contents())
+                        .origin(&manifest_path)
+                        .annotation(
+                            Level::Note.span(inherit_span_key.start..inherit_span_value.end),
+                        )
+                        .fold(true),
+                )
+            } else {
+                Level::Note.title(&second_title)
+            };
+
+            Level::Error
+                .title(&title)
+                .snippet(
+                    Snippet::source(ws_contents)
+                        .origin(&ws_path)
+                        .annotation(Level::Error.span(lint_span).label(&label))
+                        .fold(true),
+                )
+                .footer(inherited_note)
+                .footer(Level::Help.title(&help))
+        };
+
+        *error_count += 1;
+        gctx.shell().print_message(message)?;
+    }
+    Ok(())
+}
+
 fn get_span(document: &ImDocument<String>, path: &[&str], get_value: bool) -> Option<Range<usize>> {
-    let mut table = document.as_item().as_table_like().unwrap();
+    let mut table = document.as_item().as_table_like()?;
     let mut iter = path.into_iter().peekable();
     while let Some(key) = iter.next() {
-        let (key, item) = table.get_key_value(key).unwrap();
+        let (key, item) = table.get_key_value(key)?;
         if iter.peek().is_none() {
             return if get_value {
                 item.span()
@@ -66,6 +248,7 @@ pub struct LintGroup {
     pub default_level: LintLevel,
     pub desc: &'static str,
     pub edition_lint_opts: Option<(Edition, LintLevel)>,
+    pub feature_gate: Option<&'static Feature>,
 }
 
 const TEST_DUMMY_UNSTABLE: LintGroup = LintGroup {
@@ -73,6 +256,7 @@ const TEST_DUMMY_UNSTABLE: LintGroup = LintGroup {
     desc: "test_dummy_unstable is meant to only be used in tests",
     default_level: LintLevel::Allow,
     edition_lint_opts: None,
+    feature_gate: Some(Feature::test_dummy_unstable()),
 };
 
 #[derive(Copy, Clone, Debug)]
@@ -82,15 +266,25 @@ pub struct Lint {
     pub groups: &'static [LintGroup],
     pub default_level: LintLevel,
     pub edition_lint_opts: Option<(Edition, LintLevel)>,
+    pub feature_gate: Option<&'static Feature>,
 }
 
 impl Lint {
     pub fn level(
         &self,
         pkg_lints: &TomlToolLints,
-        ws_lints: Option<&TomlToolLints>,
         edition: Edition,
+        unstable_features: &Features,
     ) -> (LintLevel, LintLevelReason) {
+        // We should return `Allow` if a lint is behind a feature, but it is
+        // not enabled, that way the lint does not run.
+        if self
+            .feature_gate
+            .is_some_and(|f| !unstable_features.is_enabled(f))
+        {
+            return (LintLevel::Allow, LintLevelReason::Default);
+        }
+
         self.groups
             .iter()
             .map(|g| {
@@ -101,7 +295,6 @@ impl Lint {
                         g.default_level,
                         g.edition_lint_opts,
                         pkg_lints,
-                        ws_lints,
                         edition,
                     ),
                 )
@@ -113,7 +306,6 @@ impl Lint {
                     self.default_level,
                     self.edition_lint_opts,
                     pkg_lints,
-                    ws_lints,
                     edition,
                 ),
             )))
@@ -164,12 +356,11 @@ impl From<TomlLintLevel> for LintLevel {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum LintLevelReason {
     Default,
     Edition(Edition),
     Package,
-    Workspace,
 }
 
 impl Display for LintLevelReason {
@@ -178,7 +369,16 @@ impl Display for LintLevelReason {
             LintLevelReason::Default => write!(f, "by default"),
             LintLevelReason::Edition(edition) => write!(f, "in edition {}", edition),
             LintLevelReason::Package => write!(f, "in `[lints]`"),
-            LintLevelReason::Workspace => write!(f, "in `[workspace.lints]`"),
+        }
+    }
+}
+
+impl LintLevelReason {
+    fn is_user_specified(&self) -> bool {
+        match self {
+            LintLevelReason::Default => false,
+            LintLevelReason::Edition(_) => false,
+            LintLevelReason::Package => true,
         }
     }
 }
@@ -188,7 +388,6 @@ fn level_priority(
     default_level: LintLevel,
     edition_lint_opts: Option<(Edition, LintLevel)>,
     pkg_lints: &TomlToolLints,
-    ws_lints: Option<&TomlToolLints>,
     edition: Edition,
 ) -> (LintLevel, LintLevelReason, i8) {
     let (unspecified_level, reason) = if let Some(level) = edition_lint_opts
@@ -211,12 +410,6 @@ fn level_priority(
             LintLevelReason::Package,
             defined_level.priority(),
         )
-    } else if let Some(defined_level) = ws_lints.and_then(|l| l.get(name)) {
-        (
-            defined_level.level().into(),
-            LintLevelReason::Workspace,
-            defined_level.priority(),
-        )
     } else {
         (unspecified_level, reason, 0)
     }
@@ -228,18 +421,20 @@ const IM_A_TEAPOT: Lint = Lint {
     groups: &[TEST_DUMMY_UNSTABLE],
     default_level: LintLevel::Allow,
     edition_lint_opts: None,
+    feature_gate: Some(Feature::test_dummy_unstable()),
 };
 
 pub fn check_im_a_teapot(
     pkg: &Package,
     path: &Path,
     pkg_lints: &TomlToolLints,
-    ws_lints: Option<&TomlToolLints>,
     error_count: &mut usize,
     gctx: &GlobalContext,
 ) -> CargoResult<()> {
     let manifest = pkg.manifest();
-    let (lint_level, reason) = IM_A_TEAPOT.level(pkg_lints, ws_lints, manifest.edition());
+    let (lint_level, reason) =
+        IM_A_TEAPOT.level(pkg_lints, manifest.edition(), manifest.unstable_features());
+
     if lint_level == LintLevel::Allow {
         return Ok(());
     }
@@ -270,13 +465,8 @@ pub fn check_im_a_teapot(
                     .fold(true),
             )
             .footer(Level::Note.title(&emitted_reason));
-        let renderer = Renderer::styled().term_width(
-            gctx.shell()
-                .err_width()
-                .diagnostic_terminal_width()
-                .unwrap_or(annotate_snippets::renderer::DEFAULT_TERM_WIDTH),
-        );
-        writeln!(gctx.shell().err(), "{}", renderer.render(message))?;
+
+        gctx.shell().print_message(message)?;
     }
     Ok(())
 }
@@ -300,29 +490,30 @@ const IMPLICIT_FEATURES: Lint = Lint {
     groups: &[],
     default_level: LintLevel::Allow,
     edition_lint_opts: None,
+    feature_gate: None,
 };
 
 pub fn check_implicit_features(
     pkg: &Package,
     path: &Path,
     pkg_lints: &TomlToolLints,
-    ws_lints: Option<&TomlToolLints>,
     error_count: &mut usize,
     gctx: &GlobalContext,
 ) -> CargoResult<()> {
-    let edition = pkg.manifest().edition();
+    let manifest = pkg.manifest();
+    let edition = manifest.edition();
     // In Edition 2024+, instead of creating optional features, the dependencies are unused.
     // See `UNUSED_OPTIONAL_DEPENDENCY`
     if edition >= Edition::Edition2024 {
         return Ok(());
     }
 
-    let (lint_level, reason) = IMPLICIT_FEATURES.level(pkg_lints, ws_lints, edition);
+    let (lint_level, reason) =
+        IMPLICIT_FEATURES.level(pkg_lints, edition, manifest.unstable_features());
     if lint_level == LintLevel::Allow {
         return Ok(());
     }
 
-    let manifest = pkg.manifest();
     let activated_opt_deps = manifest
         .resolved_toml()
         .features()
@@ -367,14 +558,117 @@ pub fn check_implicit_features(
             ));
             message = message.footer(Level::Note.title(emitted_source.as_ref().unwrap()));
         }
-        let renderer = Renderer::styled().term_width(
-            gctx.shell()
-                .err_width()
-                .diagnostic_terminal_width()
-                .unwrap_or(annotate_snippets::renderer::DEFAULT_TERM_WIDTH),
-        );
-        writeln!(gctx.shell().err(), "{}", renderer.render(message))?;
+        gctx.shell().print_message(message)?;
     }
+    Ok(())
+}
+
+const UNKNOWN_LINTS: Lint = Lint {
+    name: "unknown_lints",
+    desc: "unknown lint",
+    groups: &[],
+    default_level: LintLevel::Warn,
+    edition_lint_opts: None,
+    feature_gate: None,
+};
+
+fn output_unknown_lints(
+    unknown_lints: Vec<&String>,
+    manifest: &Manifest,
+    manifest_path: &str,
+    pkg_lints: &TomlToolLints,
+    ws_contents: &str,
+    ws_document: &ImDocument<String>,
+    ws_path: &str,
+    error_count: &mut usize,
+    gctx: &GlobalContext,
+) -> CargoResult<()> {
+    let (lint_level, reason) =
+        UNKNOWN_LINTS.level(pkg_lints, manifest.edition(), manifest.unstable_features());
+    if lint_level == LintLevel::Allow {
+        return Ok(());
+    }
+
+    let level = lint_level.to_diagnostic_level();
+    let mut emitted_source = None;
+    for lint_name in unknown_lints {
+        if lint_level == LintLevel::Forbid || lint_level == LintLevel::Deny {
+            *error_count += 1;
+        }
+        let title = format!("{}: `{lint_name}`", UNKNOWN_LINTS.desc);
+        let second_title = format!("`cargo::{}` was inherited", lint_name);
+        let underscore_lint_name = lint_name.replace("-", "_");
+        let matching = if let Some(lint) = LINTS.iter().find(|l| l.name == underscore_lint_name) {
+            Some((lint.name, "lint"))
+        } else if let Some(group) = LINT_GROUPS.iter().find(|g| g.name == underscore_lint_name) {
+            Some((group.name, "group"))
+        } else {
+            None
+        };
+        let help =
+            matching.map(|(name, kind)| format!("there is a {kind} with a similar name: `{name}`"));
+
+        let mut message = if let Some(span) =
+            get_span(manifest.document(), &["lints", "cargo", lint_name], false)
+        {
+            level.title(&title).snippet(
+                Snippet::source(manifest.contents())
+                    .origin(&manifest_path)
+                    .annotation(Level::Error.span(span))
+                    .fold(true),
+            )
+        } else {
+            let lint_span = get_span(
+                ws_document,
+                &["workspace", "lints", "cargo", lint_name],
+                false,
+            )
+            .expect(&format!(
+                "could not find `cargo::{lint_name}` in `[lints]`, or `[workspace.lints]` "
+            ));
+
+            let inherited_note = if let (Some(inherit_span_key), Some(inherit_span_value)) = (
+                get_span(manifest.document(), &["lints", "workspace"], false),
+                get_span(manifest.document(), &["lints", "workspace"], true),
+            ) {
+                Level::Note.title(&second_title).snippet(
+                    Snippet::source(manifest.contents())
+                        .origin(&manifest_path)
+                        .annotation(
+                            Level::Note.span(inherit_span_key.start..inherit_span_value.end),
+                        )
+                        .fold(true),
+                )
+            } else {
+                Level::Note.title(&second_title)
+            };
+
+            level
+                .title(&title)
+                .snippet(
+                    Snippet::source(ws_contents)
+                        .origin(&ws_path)
+                        .annotation(Level::Error.span(lint_span))
+                        .fold(true),
+                )
+                .footer(inherited_note)
+        };
+
+        if emitted_source.is_none() {
+            emitted_source = Some(format!(
+                "`cargo::{}` is set to `{lint_level}` {reason}",
+                UNKNOWN_LINTS.name
+            ));
+            message = message.footer(Level::Note.title(emitted_source.as_ref().unwrap()));
+        }
+
+        if let Some(help) = help.as_ref() {
+            message = message.footer(Level::Help.title(help));
+        }
+
+        gctx.shell().print_message(message)?;
+    }
+
     Ok(())
 }
 
@@ -384,28 +678,29 @@ const UNUSED_OPTIONAL_DEPENDENCY: Lint = Lint {
     groups: &[],
     default_level: LintLevel::Warn,
     edition_lint_opts: None,
+    feature_gate: None,
 };
 
 pub fn unused_dependencies(
     pkg: &Package,
     path: &Path,
     pkg_lints: &TomlToolLints,
-    ws_lints: Option<&TomlToolLints>,
     error_count: &mut usize,
     gctx: &GlobalContext,
 ) -> CargoResult<()> {
-    let edition = pkg.manifest().edition();
+    let manifest = pkg.manifest();
+    let edition = manifest.edition();
     // Unused optional dependencies can only exist on edition 2024+
     if edition < Edition::Edition2024 {
         return Ok(());
     }
 
-    let (lint_level, reason) = UNUSED_OPTIONAL_DEPENDENCY.level(pkg_lints, ws_lints, edition);
+    let (lint_level, reason) =
+        UNUSED_OPTIONAL_DEPENDENCY.level(pkg_lints, edition, manifest.unstable_features());
     if lint_level == LintLevel::Allow {
         return Ok(());
     }
     let mut emitted_source = None;
-    let manifest = pkg.manifest();
     let original_toml = manifest.original_toml();
     // Unused dependencies were stripped from the manifest, leaving only the used ones
     let used_dependencies = manifest
@@ -476,13 +771,8 @@ pub fn unused_dependencies(
                         "remove the dependency or activate it in a feature with `dep:{name}`"
                     );
                     message = message.footer(Level::Help.title(&help));
-                    let renderer = Renderer::styled().term_width(
-                        gctx.shell()
-                            .err_width()
-                            .diagnostic_terminal_width()
-                            .unwrap_or(annotate_snippets::renderer::DEFAULT_TERM_WIDTH),
-                    );
-                    writeln!(gctx.shell().err(), "{}", renderer.render(message))?;
+
+                    gctx.shell().print_message(message)?;
                 }
             }
         }

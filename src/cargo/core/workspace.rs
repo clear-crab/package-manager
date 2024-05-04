@@ -24,7 +24,9 @@ use crate::sources::{PathSource, CRATES_IO_INDEX, CRATES_IO_REGISTRY};
 use crate::util::edit_distance;
 use crate::util::errors::{CargoResult, ManifestError};
 use crate::util::interning::InternedString;
-use crate::util::lints::{check_im_a_teapot, check_implicit_features, unused_dependencies};
+use crate::util::lints::{
+    analyze_cargo_lints_table, check_im_a_teapot, check_implicit_features, unused_dependencies,
+};
 use crate::util::toml::{read_manifest, InheritableFields};
 use crate::util::{
     context::CargoResolverConfig, context::CargoResolverPrecedence, context::ConfigRelativePath,
@@ -1147,26 +1149,11 @@ impl<'gctx> Workspace<'gctx> {
     }
 
     pub fn emit_warnings(&self) -> CargoResult<()> {
-        let ws_lints = self
-            .root_maybe()
-            .workspace_config()
-            .inheritable()
-            .and_then(|i| i.lints().ok())
-            .unwrap_or_default();
-
-        let ws_cargo_lints = ws_lints
-            .get("cargo")
-            .cloned()
-            .unwrap_or_default()
-            .into_iter()
-            .map(|(k, v)| (k.replace('-', "_"), v))
-            .collect();
-
         for (path, maybe_pkg) in &self.packages.packages {
             let path = path.join("Cargo.toml");
             if let MaybePackage::Package(pkg) = maybe_pkg {
                 if self.gctx.cli_unstable().cargo_lints {
-                    self.emit_lints(pkg, &path, &ws_cargo_lints)?
+                    self.emit_lints(pkg, &path)?
                 }
             }
             let warnings = match maybe_pkg {
@@ -1194,12 +1181,7 @@ impl<'gctx> Workspace<'gctx> {
         Ok(())
     }
 
-    pub fn emit_lints(
-        &self,
-        pkg: &Package,
-        path: &Path,
-        ws_cargo_lints: &manifest::TomlToolLints,
-    ) -> CargoResult<()> {
+    pub fn emit_lints(&self, pkg: &Package, path: &Path) -> CargoResult<()> {
         let mut error_count = 0;
         let toml_lints = pkg
             .manifest()
@@ -1212,45 +1194,29 @@ impl<'gctx> Workspace<'gctx> {
             .get("cargo")
             .cloned()
             .unwrap_or(manifest::TomlToolLints::default());
-        let normalized_lints = cargo_lints
-            .into_iter()
-            .map(|(name, lint)| (name.replace('-', "_"), lint))
-            .collect();
 
-        // We should only be using workspace lints if the `[lints]` table is
-        // present in the manifest, and `workspace` is set to `true`
-        let ws_cargo_lints = pkg
-            .manifest()
-            .resolved_toml()
-            .lints
-            .as_ref()
-            .is_some_and(|l| l.workspace)
-            .then(|| ws_cargo_lints);
+        let ws_contents = match self.root_maybe() {
+            MaybePackage::Package(pkg) => pkg.manifest().contents(),
+            MaybePackage::Virtual(v) => v.contents(),
+        };
 
-        check_im_a_teapot(
+        let ws_document = match self.root_maybe() {
+            MaybePackage::Package(pkg) => pkg.manifest().document(),
+            MaybePackage::Virtual(v) => v.document(),
+        };
+
+        analyze_cargo_lints_table(
             pkg,
             &path,
-            &normalized_lints,
-            ws_cargo_lints,
-            &mut error_count,
+            &cargo_lints,
+            ws_contents,
+            ws_document,
+            self.root_manifest(),
             self.gctx,
         )?;
-        check_implicit_features(
-            pkg,
-            &path,
-            &normalized_lints,
-            ws_cargo_lints,
-            &mut error_count,
-            self.gctx,
-        )?;
-        unused_dependencies(
-            pkg,
-            &path,
-            &normalized_lints,
-            ws_cargo_lints,
-            &mut error_count,
-            self.gctx,
-        )?;
+        check_im_a_teapot(pkg, &path, &cargo_lints, &mut error_count, self.gctx)?;
+        check_implicit_features(pkg, &path, &cargo_lints, &mut error_count, self.gctx)?;
+        unused_dependencies(pkg, &path, &cargo_lints, &mut error_count, self.gctx)?;
         if error_count > 0 {
             Err(crate::util::errors::AlreadyPrintedError::new(anyhow!(
                 "encountered {error_count} errors(s) while running lints"
