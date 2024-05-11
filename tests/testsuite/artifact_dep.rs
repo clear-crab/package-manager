@@ -1,7 +1,7 @@
 //! Tests specific to artifact dependencies, designated using
 //! the new `dep = { artifact = "bin", … }` syntax in manifests.
 
-use cargo_test_support::compare::match_exact;
+use cargo_test_support::compare;
 use cargo_test_support::registry::{Package, RegistryBuilder};
 use cargo_test_support::{
     basic_bin_manifest, basic_manifest, cross_compile, project, publish, registry, rustc_host,
@@ -593,9 +593,9 @@ fn build_script_with_bin_artifacts() {
         .run();
 
     let build_script_output = build_script_output_string(&p, "foo");
-    let msg = "we need the binary directory for this artifact along with all binary paths";
+    // we need the binary directory for this artifact along with all binary paths
     if cfg!(target_env = "msvc") {
-        match_exact(
+        compare::assert_match_exact(
             "[..]/artifact/bar-[..]/bin/baz.exe\n\
              [..]/artifact/bar-[..]/staticlib/bar-[..].lib\n\
              [..]/artifact/bar-[..]/cdylib/bar.dll\n\
@@ -603,13 +603,9 @@ fn build_script_with_bin_artifacts() {
              [..]/artifact/bar-[..]/bin/bar.exe\n\
              [..]/artifact/bar-[..]/bin/bar.exe",
             &build_script_output,
-            msg,
-            "",
-            None,
         )
-        .unwrap();
     } else {
-        match_exact(
+        compare::assert_match_exact(
             "[..]/artifact/bar-[..]/bin/baz-[..]\n\
              [..]/artifact/bar-[..]/staticlib/libbar-[..].a\n\
              [..]/artifact/bar-[..]/cdylib/[..]bar.[..]\n\
@@ -617,11 +613,7 @@ fn build_script_with_bin_artifacts() {
              [..]/artifact/bar-[..]/bin/bar-[..]\n\
              [..]/artifact/bar-[..]/bin/bar-[..]",
             &build_script_output,
-            msg,
-            "",
-            None,
         )
-        .unwrap();
     }
 
     assert!(
@@ -783,31 +775,22 @@ fn build_script_with_selected_dashed_bin_artifact_and_lib_true() {
         .run();
 
     let build_script_output = build_script_output_string(&p, "foo");
-    let msg = "we need the binary directory for this artifact and the binary itself";
-
+    // we need the binary directory for this artifact and the binary itself
     if cfg!(target_env = "msvc") {
-        cargo_test_support::compare::match_exact(
+        compare::assert_match_exact(
             &format!(
                 "[..]/artifact/bar-baz-[..]/bin\n\
                  [..]/artifact/bar-baz-[..]/bin/baz_suffix{}",
                 std::env::consts::EXE_SUFFIX,
             ),
             &build_script_output,
-            msg,
-            "",
-            None,
-        )
-        .unwrap();
+        );
     } else {
-        cargo_test_support::compare::match_exact(
+        compare::assert_match_exact(
             "[..]/artifact/bar-baz-[..]/bin\n\
         [..]/artifact/bar-baz-[..]/bin/baz_suffix-[..]",
             &build_script_output,
-            msg,
-            "",
-            None,
-        )
-        .unwrap();
+        );
     }
 
     assert!(
@@ -1757,14 +1740,7 @@ fn allow_dep_renames_with_multiple_versions() {
         .with_stderr_contains("[COMPILING] foo [..]")
         .run();
     let build_script_output = build_script_output_string(&p, "foo");
-    match_exact(
-        "0.5.0\n1.0.0",
-        &build_script_output,
-        "build script output",
-        "",
-        None,
-    )
-    .unwrap();
+    compare::assert_match_exact("0.5.0\n1.0.0", &build_script_output);
 }
 
 #[cargo_test]
@@ -3188,4 +3164,70 @@ fn check_transitive_artifact_dependency_with_different_target() {
         )
         .with_status(101)
         .run();
+}
+
+#[cargo_test]
+fn build_only_specified_artifact_library() {
+    // Create a project with:
+    // - A crate `bar` with both `staticlib` and `cdylib` as crate-types.
+    // - A crate `foo` which depends on either the `staticlib` or `cdylib` artifact of bar,
+    //   whose build-script simply checks which library artifacts are present.
+    let create_project = |artifact_lib| {
+        project()
+            .file(
+                "bar/Cargo.toml",
+                r#"
+                [package]
+                name = "bar"
+                version = "1.0.0"
+
+                [lib]
+                crate-type = ["staticlib", "cdylib"]
+                "#,
+            )
+            .file("bar/src/lib.rs", "")
+            .file(
+                "Cargo.toml",
+                &format!(
+                r#"
+                [package]
+                name = "foo"
+                version = "1.0.0"
+
+                [build-dependencies]
+                bar = {{ path = "bar", artifact = "{artifact_lib}" }}
+            "#),
+            )
+            .file("src/lib.rs", "")
+            .file(
+                "build.rs",
+                r#"
+                fn main() {
+                    println!("cdylib present: {}", std::env::var_os("CARGO_CDYLIB_FILE_BAR").is_some());
+                    println!("staticlib present: {}", std::env::var_os("CARGO_STATICLIB_FILE_BAR").is_some());
+                }
+            "#,
+            )
+            .build()
+    };
+
+    let cdylib = create_project("cdylib");
+    cdylib
+        .cargo("build -Z bindeps")
+        .masquerade_as_nightly_cargo(&["bindeps"])
+        .run();
+    compare::assert_match_exact(
+        "cdylib present: true\nstaticlib present: false",
+        &build_script_output_string(&cdylib, "foo"),
+    );
+
+    let staticlib = create_project("staticlib");
+    staticlib
+        .cargo("build -Z bindeps")
+        .masquerade_as_nightly_cargo(&["bindeps"])
+        .run();
+    compare::assert_match_exact(
+        "cdylib present: false\nstaticlib present: true",
+        &build_script_output_string(&staticlib, "foo"),
+    );
 }
