@@ -149,32 +149,37 @@ fn add_common_redactions(subs: &mut snapbox::Redactions) {
     // For e2e tests
     subs.insert(
         "[ELAPSED]",
-        regex!("[FINISHED].*in (?<redacted>[0-9]+(\\.[0-9]+))s"),
+        regex!(r"\[FINISHED\].*in (?<redacted>[0-9]+(\.[0-9]+))s"),
     )
     .unwrap();
     // for UI tests
     subs.insert(
         "[ELAPSED]",
-        regex!("Finished.*in (?<redacted>[0-9]+(\\.[0-9]+))s"),
+        regex!(r"Finished.*in (?<redacted>[0-9]+(\.[0-9]+))s"),
     )
     .unwrap();
     // output from libtest
     subs.insert(
         "[ELAPSED]",
-        regex!("; finished in (?<redacted>[0-9]+(\\.[0-9]+))s"),
+        regex!(r"; finished in (?<redacted>[0-9]+(\.[0-9]+))s"),
+    )
+    .unwrap();
+    subs.insert(
+        "[FILE_NUM]",
+        regex!(r"\[(REMOVED|SUMMARY)\] (?<redacted>[0-9]+) files"),
     )
     .unwrap();
     subs.insert(
         "[FILE_SIZE]",
-        regex!("(?<redacted>[0-9]+(\\.[0-9]+)([a-zA-Z]i)?)B"),
+        regex!(r"(?<redacted>[0-9]+(\.[0-9]+)([a-zA-Z]i)?)B"),
     )
     .unwrap();
     subs.insert(
         "[HASH]",
-        regex!("home/\\.cargo/registry/src/-(?<redacted>[a-z0-9]+)"),
+        regex!(r"home/\.cargo/registry/src/-(?<redacted>[a-z0-9]+)"),
     )
     .unwrap();
-    subs.insert("[HASH]", regex!("/[a-z0-9\\-_]+-(?<redacted>[0-9a-f]{16})"))
+    subs.insert("[HASH]", regex!(r"/[a-z0-9\-_]+-(?<redacted>[0-9a-f]{16})"))
         .unwrap();
     subs.insert("[HOST_TARGET]", rustc_host()).unwrap();
     if let Some(alt_target) = try_alternate() {
@@ -182,12 +187,12 @@ fn add_common_redactions(subs: &mut snapbox::Redactions) {
     }
     subs.insert(
         "[AVG_ELAPSED]",
-        regex!("(?<redacted>[0-9]+(\\.[0-9]+)?) ns/iter"),
+        regex!(r"(?<redacted>[0-9]+(\.[0-9]+)?) ns/iter"),
     )
     .unwrap();
     subs.insert(
         "[JITTER]",
-        regex!("ns/iter \\(\\+/- (?<redacted>[0-9]+(\\.[0-9]+)?)\\)"),
+        regex!(r"ns/iter \(\+/- (?<redacted>[0-9]+(\.[0-9]+)?)\)"),
     )
     .unwrap();
 }
@@ -196,6 +201,18 @@ static MIN_LITERAL_REDACTIONS: &[(&str, &str)] = &[
     ("[EXE]", std::env::consts::EXE_SUFFIX),
     ("[BROKEN_PIPE]", "Broken pipe (os error 32)"),
     ("[BROKEN_PIPE]", "The pipe is being closed. (os error 232)"),
+    // Unix message for an entity was not found
+    ("[NOT_FOUND]", "No such file or directory (os error 2)"),
+    // Windows message for an entity was not found
+    (
+        "[NOT_FOUND]",
+        "The system cannot find the file specified. (os error 2)",
+    ),
+    (
+        "[NOT_FOUND]",
+        "The system cannot find the path specified. (os error 3)",
+    ),
+    ("[NOT_FOUND]", "program not found"),
     // Unix message for exit status
     ("[EXIT_STATUS]", "exit status"),
     // Windows message for exit status
