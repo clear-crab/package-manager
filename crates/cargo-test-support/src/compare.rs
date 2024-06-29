@@ -171,12 +171,17 @@ fn add_common_redactions(subs: &mut snapbox::Redactions) {
     .unwrap();
     subs.insert(
         "[FILE_SIZE]",
-        regex!(r"(?<redacted>[0-9]+(\.[0-9]+)([a-zA-Z]i)?)B"),
+        regex!(r"(?<redacted>[0-9]+(\.[0-9]+)?([a-zA-Z]i)?)B\s"),
     )
     .unwrap();
     subs.insert(
         "[HASH]",
         regex!(r"home/\.cargo/registry/src/-(?<redacted>[a-z0-9]+)"),
+    )
+    .unwrap();
+    subs.insert(
+        "[HASH]",
+        regex!(r"\.cargo/target/(?<redacted>[0-9a-f]{2}/[0-9a-f]{14})"),
     )
     .unwrap();
     subs.insert("[HASH]", regex!(r"/[a-z0-9\-_]+-(?<redacted>[0-9a-f]{16})"))
@@ -212,6 +217,7 @@ static MIN_LITERAL_REDACTIONS: &[(&str, &str)] = &[
         "[NOT_FOUND]",
         "The system cannot find the path specified. (os error 3)",
     ),
+    ("[NOT_FOUND]", "Access is denied. (os error 5)"),
     ("[NOT_FOUND]", "program not found"),
     // Unix message for exit status
     ("[EXIT_STATUS]", "exit status"),
