@@ -1,5 +1,8 @@
 //! Tests for the `cargo doc` command.
 
+use std::fs;
+use std::str;
+
 use cargo::core::compiler::RustDocFingerprint;
 use cargo_test_support::paths::CargoPathExt;
 use cargo_test_support::prelude::*;
@@ -7,8 +10,6 @@ use cargo_test_support::registry::Package;
 use cargo_test_support::str;
 use cargo_test_support::{basic_lib_manifest, basic_manifest, git, project};
 use cargo_test_support::{rustc_host, symlink_supported, tools};
-use std::fs;
-use std::str;
 
 #[cargo_test]
 fn simple() {
@@ -1812,7 +1813,7 @@ fn doc_private_ws() {
 }
 
 const BAD_INTRA_LINK_LIB: &str = r#"
-#![deny(broken_intra_doc_links)]
+#![deny(rustdoc::broken_intra_doc_links)]
 
 /// [bad_link]
 pub fn foo() {}

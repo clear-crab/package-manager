@@ -8,24 +8,28 @@
 
 #![allow(deprecated)]
 
-use super::config::GlobalContextBuilder;
-use cargo::core::global_cache_tracker::{self, DeferredGlobalLastUse, GlobalCacheTracker};
-use cargo::util::cache_lock::CacheLockMode;
-use cargo::util::interning::InternedString;
-use cargo::GlobalContext;
-use cargo_test_support::paths::{self, CargoPathExt};
-use cargo_test_support::registry::{Package, RegistryBuilder};
-use cargo_test_support::{
-    basic_manifest, cargo_process, execs, git, process, project, retry, sleep_ms,
-    thread_wait_timeout, Execs, Project,
-};
-use itertools::Itertools;
+use std::env;
 use std::fmt::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime};
+
+use cargo::core::global_cache_tracker::{self, DeferredGlobalLastUse, GlobalCacheTracker};
+use cargo::util::cache_lock::CacheLockMode;
+use cargo::util::interning::InternedString;
+use cargo::GlobalContext;
+use cargo_test_support::paths::{self, CargoPathExt};
+use cargo_test_support::prelude::*;
+use cargo_test_support::registry::{Package, RegistryBuilder};
+use cargo_test_support::{
+    basic_manifest, cargo_process, execs, git, process, project, retry, sleep_ms,
+    thread_wait_timeout, Execs, Project,
+};
+use itertools::Itertools;
+
+use super::config::GlobalContextBuilder;
 
 /// Helper to create a simple `foo` project which depends on a registry
 /// dependency called `bar`.
@@ -169,12 +173,19 @@ fn populate_cache(
     (cache_dir, src_dir)
 }
 
+/// Returns an `Execs` that will run the rustup `cargo` proxy from the global
+/// system's cargo home directory.
 fn rustup_cargo() -> Execs {
-    // Get the path to the rustup cargo wrapper. This is necessary because
-    // cargo adds the "deps" directory into PATH on Windows, which points to
-    // the wrong cargo.
-    let rustup_cargo = Path::new(&std::env::var_os("CARGO_HOME").unwrap()).join("bin/cargo");
-    execs().with_process_builder(process(rustup_cargo))
+    // Modify the PATH to ensure that `cargo` and `rustc` comes from
+    // CARGO_HOME. This is necessary because cargo adds the "deps" directory
+    // into PATH on Windows, which points to the wrong cargo.
+    let real_cargo_home_bin = Path::new(&std::env::var_os("CARGO_HOME").unwrap()).join("bin");
+    let mut paths = vec![real_cargo_home_bin];
+    paths.extend(env::split_paths(&env::var_os("PATH").unwrap_or_default()));
+    let path = env::join_paths(paths).unwrap();
+    let mut e = execs().with_process_builder(process("cargo"));
+    e.env("PATH", path);
+    e
 }
 
 #[cargo_test]

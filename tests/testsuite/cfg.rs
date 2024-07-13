@@ -1,5 +1,6 @@
 //! Tests for cfg() expressions.
 
+use cargo_test_support::prelude::*;
 use cargo_test_support::registry::Package;
 use cargo_test_support::rustc_host;
 use cargo_test_support::{basic_manifest, project, str};
@@ -452,7 +453,7 @@ lib___.rlib
 [..]___.[..]
 [..]___.[..]
 [..]___.[..]
-[..]rust[..]
+[..]
 
 
 "#]])
@@ -470,7 +471,7 @@ lib___.rlib
 [..]___.[..]
 [..]___.[..]
 [..]___.[..]
-[..]rust[..]
+[..]
 [..],[..]
 ___
 123
