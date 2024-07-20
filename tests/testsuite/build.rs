@@ -12,7 +12,7 @@ use cargo::{
     GlobalContext,
 };
 use cargo_test_support::compare::assert_e2e;
-use cargo_test_support::paths::{root, CargoPathExt};
+use cargo_test_support::paths::root;
 use cargo_test_support::prelude::*;
 use cargo_test_support::registry::Package;
 use cargo_test_support::str;
@@ -398,7 +398,7 @@ fn cargo_compile_with_invalid_manifest() {
 [ERROR] failed to parse manifest at `[ROOT]/foo/Cargo.toml`
 
 Caused by:
-  virtual manifests must be configured with [workspace]
+  manifest is missing either a `[package]` or a `[workspace]`
 
 "#]])
         .run();
