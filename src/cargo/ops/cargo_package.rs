@@ -147,13 +147,13 @@ fn create_package(
         .status("Packaging", pkg.package_id().to_string())?;
     dst.file().set_len(0)?;
     let uncompressed_size = tar(ws, pkg, local_reg, ar_files, dst.file(), &filename)
-        .with_context(|| "failed to prepare local package for uploading")?;
+        .context("failed to prepare local package for uploading")?;
 
     dst.seek(SeekFrom::Start(0))?;
     let src_path = dst.path();
     let dst_path = dst.parent().join(&filename);
     fs::rename(&src_path, &dst_path)
-        .with_context(|| "failed to move temporary tarball into final location")?;
+        .context("failed to move temporary tarball into final location")?;
 
     let dst_metadata = dst
         .file()
@@ -185,44 +185,76 @@ fn infer_registry(
     pkgs: &[&Package],
     reg_or_index: Option<RegistryOrIndex>,
 ) -> CargoResult<SourceId> {
-    let publish_registry = if let Some(RegistryOrIndex::Registry(registry)) = reg_or_index.as_ref()
-    {
-        Some(registry.clone())
-    } else if let Some([first_pkg_reg]) = pkgs[0].publish().as_deref() {
-        // If no registry is specified in the command, but all of the packages
-        // to publish have the same, unique allowed registry, push to that one.
-        if pkgs[1..].iter().all(|p| p.publish() == pkgs[0].publish()) {
-            Some(first_pkg_reg.clone())
-        } else {
-            None
+    let reg_or_index = match reg_or_index {
+        Some(r) => r,
+        None => {
+            if pkgs[1..].iter().all(|p| p.publish() == pkgs[0].publish()) {
+                // If all packages have the same publish settings, we take that as the default.
+                match pkgs[0].publish().as_deref() {
+                    Some([unique_pkg_reg]) => RegistryOrIndex::Registry(unique_pkg_reg.to_owned()),
+                    None | Some([]) => RegistryOrIndex::Registry(CRATES_IO_REGISTRY.to_owned()),
+                    Some([reg, ..]) if pkgs.len() == 1 => {
+                        // For backwards compatibility, avoid erroring if there's only one package.
+                        // The registry doesn't affect packaging in this case.
+                        RegistryOrIndex::Registry(reg.to_owned())
+                    }
+                    Some(regs) => {
+                        let mut regs: Vec<_> = regs.iter().map(|s| format!("\"{}\"", s)).collect();
+                        regs.sort();
+                        regs.dedup();
+                        // unwrap: the match block ensures that there's more than one reg.
+                        let (last_reg, regs) = regs.split_last().unwrap();
+                        bail!(
+                            "--registry is required to disambiguate between {} or {} registries",
+                            regs.join(", "),
+                            last_reg
+                        )
+                    }
+                }
+            } else {
+                let common_regs = pkgs
+                    .iter()
+                    // `None` means "all registries", so drop them instead of including them
+                    // in the intersection.
+                    .filter_map(|p| p.publish().as_deref())
+                    .map(|p| p.iter().collect::<HashSet<_>>())
+                    .reduce(|xs, ys| xs.intersection(&ys).cloned().collect())
+                    .unwrap_or_default();
+                if common_regs.is_empty() {
+                    bail!("conflicts between `package.publish` fields in the selected packages");
+                } else {
+                    bail!(
+                        "--registry is required because not all `package.publish` settings agree",
+                    );
+                }
+            }
         }
-    } else {
-        None
     };
 
     // Validate the registry against the packages' allow-lists. For backwards compatibility, we
     // skip this if only a single package is being published (because in that case the registry
     // doesn't affect the packaging step).
     if pkgs.len() > 1 {
-        let reg_name = publish_registry.as_deref().unwrap_or(CRATES_IO_REGISTRY);
-        for pkg in pkgs {
-            if let Some(allowed) = pkg.publish().as_ref() {
-                if !allowed.iter().any(|a| a == reg_name) {
-                    bail!(
+        if let RegistryOrIndex::Registry(reg_name) = &reg_or_index {
+            for pkg in pkgs {
+                if let Some(allowed) = pkg.publish().as_ref() {
+                    if !allowed.iter().any(|a| a == reg_name) {
+                        bail!(
                         "`{}` cannot be packaged.\n\
                          The registry `{}` is not listed in the `package.publish` value in Cargo.toml.",
                         pkg.name(),
                         reg_name
                     );
+                    }
                 }
             }
         }
     }
 
     let sid = match reg_or_index {
-        None => SourceId::crates_io(gctx)?,
-        Some(RegistryOrIndex::Registry(r)) => SourceId::alt_registry(gctx, &r)?,
-        Some(RegistryOrIndex::Index(url)) => SourceId::for_registry(&url)?,
+        RegistryOrIndex::Index(url) => SourceId::for_registry(&url)?,
+        RegistryOrIndex::Registry(reg) if reg == CRATES_IO_REGISTRY => SourceId::crates_io(gctx)?,
+        RegistryOrIndex::Registry(reg) => SourceId::alt_registry(gctx, &reg)?,
     };
 
     // Load source replacements that are built-in to Cargo.
@@ -299,7 +331,7 @@ pub fn package(ws: &Workspace<'_>, opts: &PackageOpts<'_>) -> CargoResult<Vec<Fi
     if opts.verify {
         for (pkg, opts, tarball) in &outputs {
             run_verify(ws, pkg, tarball, local_reg.as_ref(), opts)
-                .with_context(|| "failed to verify package tarball")?
+                .context("failed to verify package tarball")?
         }
     }
 
@@ -743,10 +775,12 @@ fn check_repo_state(
                         .and_then(|p| p.to_str())
                         .unwrap_or("")
                         .replace("\\", "/");
-                    return Ok(Some(VcsInfo {
-                        git: git(p, src_files, &repo, &opts)?,
-                        path_in_vcs,
-                    }));
+                    let Some(git) = git(p, src_files, &repo, &opts)? else {
+                        // If the git repo lacks essensial field like `sha1`, and since this field exists from the beginning,
+                        // then don't generate the corresponding file in order to maintain consistency with past behavior.
+                        return Ok(None);
+                    };
+                    return Ok(Some(VcsInfo { git, path_in_vcs }));
                 }
             }
             gctx.shell().verbose(|shell| {
@@ -772,7 +806,7 @@ fn check_repo_state(
         src_files: &[PathBuf],
         repo: &git2::Repository,
         opts: &PackageOpts<'_>,
-    ) -> CargoResult<GitVcsInfo> {
+    ) -> CargoResult<Option<GitVcsInfo>> {
         // This is a collection of any dirty or untracked files. This covers:
         // - new/modified/deleted/renamed/type change (index or worktree)
         // - untracked files (which are "new" worktree files)
@@ -799,11 +833,16 @@ fn check_repo_state(
             .collect();
         let dirty = !dirty_src_files.is_empty();
         if !dirty || opts.allow_dirty {
+            // Must check whetherthe repo has no commit firstly, otherwise `revparse_single` would fail on bare commit repo.
+            // Due to lacking the `sha1` field, it's better not record the `GitVcsInfo` for consistency.
+            if repo.is_empty()? {
+                return Ok(None);
+            }
             let rev_obj = repo.revparse_single("HEAD")?;
-            Ok(GitVcsInfo {
+            Ok(Some(GitVcsInfo {
                 sha1: rev_obj.id().to_string(),
                 dirty,
-            })
+            }))
         } else {
             anyhow::bail!(
                 "{} files in the working directory contain changes that were \
