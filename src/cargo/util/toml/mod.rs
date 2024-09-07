@@ -312,7 +312,7 @@ fn normalize_toml(
         inherit_cell
             .try_borrow_with(|| load_inheritable_fields(gctx, manifest_file, &workspace_config))
     };
-    let workspace_root = || inherit().map(|fields| fields.ws_root());
+    let workspace_root = || inherit().map(|fields| fields.ws_root().as_path());
 
     if let Some(original_package) = original_toml.package() {
         let package_name = &original_package.name;
@@ -538,7 +538,7 @@ fn normalize_toml(
 fn normalize_patch<'a>(
     gctx: &GlobalContext,
     original_patch: Option<&BTreeMap<String, BTreeMap<PackageName, TomlDependency>>>,
-    workspace_root: &dyn Fn() -> CargoResult<&'a PathBuf>,
+    workspace_root: &dyn Fn() -> CargoResult<&'a Path>,
     features: &Features,
 ) -> CargoResult<Option<BTreeMap<String, BTreeMap<PackageName, TomlDependency>>>> {
     if let Some(patch) = original_patch {
@@ -757,7 +757,7 @@ fn normalize_dependencies<'a>(
     activated_opt_deps: &HashSet<&str>,
     kind: Option<DepKind>,
     inherit: &dyn Fn() -> CargoResult<&'a InheritableFields>,
-    workspace_root: &dyn Fn() -> CargoResult<&'a PathBuf>,
+    workspace_root: &dyn Fn() -> CargoResult<&'a Path>,
     package_root: &Path,
     warnings: &mut Vec<String>,
 ) -> CargoResult<Option<BTreeMap<manifest::PackageName, manifest::InheritableDependency>>> {
@@ -786,12 +786,8 @@ fn normalize_dependencies<'a>(
                 warnings,
             )?;
             if d.public.is_some() {
-                let public_feature = features.require(Feature::public_dependency());
-                let with_public_feature = public_feature.is_ok();
+                let with_public_feature = features.require(Feature::public_dependency()).is_ok();
                 let with_z_public = gctx.cli_unstable().public_dependency;
-                if !with_public_feature && (!with_z_public && !gctx.nightly_features_allowed) {
-                    public_feature?;
-                }
                 if matches!(kind, None) {
                     if !with_public_feature && !with_z_public {
                         d.public = None;
@@ -839,7 +835,7 @@ fn normalize_dependencies<'a>(
 fn normalize_path_dependency<'a>(
     gctx: &GlobalContext,
     detailed_dep: &mut TomlDetailedDependency,
-    workspace_root: &dyn Fn() -> CargoResult<&'a PathBuf>,
+    workspace_root: &dyn Fn() -> CargoResult<&'a Path>,
     features: &Features,
 ) -> CargoResult<()> {
     if let Some(base) = detailed_dep.base.take() {
@@ -2225,7 +2221,7 @@ fn to_dependency_source_id<P: ResolveToPath + Clone>(
 pub(crate) fn lookup_path_base<'a>(
     base: &PathBaseName,
     gctx: &GlobalContext,
-    workspace_root: &dyn Fn() -> CargoResult<&'a PathBuf>,
+    workspace_root: &dyn Fn() -> CargoResult<&'a Path>,
     features: &Features,
 ) -> CargoResult<PathBuf> {
     features.require(Feature::path_bases())?;
@@ -2240,7 +2236,7 @@ pub(crate) fn lookup_path_base<'a>(
     } else {
         // Otherwise, check the built-in bases.
         match base.as_str() {
-            "workspace" => Ok(workspace_root()?.clone()),
+            "workspace" => Ok(workspace_root()?.to_path_buf()),
             _ => bail!(
                 "path base `{base}` is undefined. \
             You must add an entry for `{base}` in the Cargo configuration [path-bases] table."

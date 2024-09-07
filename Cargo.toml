@@ -37,7 +37,7 @@ cargo-util-schemas = { version = "0.6.0", path = "crates/cargo-util-schemas" }
 cargo_metadata = "0.18.1"
 clap = "4.5.11"
 color-print = "0.3.6"
-core-foundation = { version = "0.9.4", features = ["mac_os_10_7_support"] }
+core-foundation = { version = "0.10.0", features = ["mac_os_10_7_support"] }
 crates-io = { version = "0.40.4", path = "crates/crates-io" }
 criterion = { version = "0.5.1", features = ["html_reports"] }
 curl = "0.4.46"
@@ -69,7 +69,7 @@ opener = "0.7.1"
 openssl = "=0.10.57" # See rust-lang/cargo#13546 and openssl/openssl#23376 for pinning
 openssl-sys = "=0.9.92" # See rust-lang/cargo#13546 and openssl/openssl#23376 for pinning
 os_info = { version = "3.8.2", default-features = false }
-pasetors = { version = "0.6.8", features = ["v3", "paserk", "std", "serde"] }
+pasetors = { version = "0.7.0", features = ["v3", "paserk", "std", "serde"] }
 pathdiff = "0.2.1"
 percent-encoding = "2.3.1"
 pkg-config = "0.3.30"
@@ -126,7 +126,7 @@ self_named_module_files = "warn"
 
 [package]
 name = "cargo"
-version = "0.83.0"
+version = "0.84.0"
 edition.workspace = true
 license.workspace = true
 rust-version = "1.80"  # MSRV:1
