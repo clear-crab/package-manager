@@ -662,9 +662,13 @@ impl<'gctx> Workspace<'gctx> {
         self.requested_lockfile_path = path;
     }
 
+    pub fn requested_lockfile_path(&self) -> Option<&Path> {
+        self.requested_lockfile_path.as_deref()
+    }
+
     /// Get the lowest-common denominator `package.rust-version` within the workspace, if specified
     /// anywhere
-    pub fn rust_version(&self) -> Option<&RustVersion> {
+    pub fn lowest_rust_version(&self) -> Option<&RustVersion> {
         self.members().filter_map(|pkg| pkg.rust_version()).min()
     }
 

@@ -95,7 +95,7 @@ fn cargo_fail_with_no_stderr() {
         .with_status(101)
         .with_stderr_data(str![[r#"
 [COMPILING] foo v0.5.0 ([ROOT]/foo)
-[ERROR] could not compile `foo` (bin "foo") due to 2 previous errors
+[ERROR] could not compile `foo` (bin "foo") due to 1 previous error
 
 "#]])
         .run();
@@ -132,7 +132,7 @@ fn cargo_compile_incremental() {
         .run();
 }
 
-#[allow(deprecated)]
+#[expect(deprecated)]
 #[cargo_test]
 fn incremental_profile() {
     let p = project()
@@ -176,7 +176,7 @@ fn incremental_profile() {
         .run();
 }
 
-#[allow(deprecated)]
+#[expect(deprecated)]
 #[cargo_test]
 fn incremental_config() {
     let p = project()
@@ -1524,7 +1524,6 @@ fn ignores_carriage_return_in_lockfile() {
     p.cargo("build").run();
 }
 
-#[allow(deprecated)]
 #[cargo_test]
 fn cargo_default_env_metadata_env_var() {
     // Ensure that path dep + dylib + env_var get metadata
@@ -1624,6 +1623,7 @@ fn crate_env_vars() {
                 static VERSION_PRE: &'static str = env!("CARGO_PKG_VERSION_PRE");
                 static VERSION: &'static str = env!("CARGO_PKG_VERSION");
                 static CARGO_MANIFEST_DIR: &'static str = env!("CARGO_MANIFEST_DIR");
+                static CARGO_MANIFEST_PATH: &'static str = env!("CARGO_MANIFEST_PATH");
                 static PKG_NAME: &'static str = env!("CARGO_PKG_NAME");
                 static HOMEPAGE: &'static str = env!("CARGO_PKG_HOMEPAGE");
                 static REPOSITORY: &'static str = env!("CARGO_PKG_REPOSITORY");
@@ -1637,9 +1637,9 @@ fn crate_env_vars() {
 
 
                 fn main() {
-                    let s = format!("{}-{}-{} @ {} in {}", VERSION_MAJOR,
+                    let s = format!("{}-{}-{} @ {} in {} file {}", VERSION_MAJOR,
                                     VERSION_MINOR, VERSION_PATCH, VERSION_PRE,
-                                    CARGO_MANIFEST_DIR);
+                                    CARGO_MANIFEST_DIR, CARGO_MANIFEST_PATH);
                      assert_eq!(s, foo::version());
                      println!("{}", s);
                      assert_eq!("foo", PKG_NAME);
@@ -1673,12 +1673,13 @@ fn crate_env_vars() {
                 use std::path::PathBuf;
 
                 pub fn version() -> String {
-                    format!("{}-{}-{} @ {} in {}",
+                    format!("{}-{}-{} @ {} in {} file {}",
                             env!("CARGO_PKG_VERSION_MAJOR"),
                             env!("CARGO_PKG_VERSION_MINOR"),
                             env!("CARGO_PKG_VERSION_PATCH"),
                             env!("CARGO_PKG_VERSION_PRE"),
-                            env!("CARGO_MANIFEST_DIR"))
+                            env!("CARGO_MANIFEST_DIR"),
+                            env!("CARGO_MANIFEST_PATH"))
                 }
 
                 pub fn check_no_int_test_env() {
@@ -1794,7 +1795,7 @@ fn crate_env_vars() {
     println!("bin");
     p.process(&p.bin("foo-bar"))
         .with_stdout_data(str![[r#"
-0-5-1 @ alpha.1 in [ROOT]/foo
+0-5-1 @ alpha.1 in [ROOT]/foo file [ROOT]/foo/Cargo.toml
 
 "#]])
         .run();
@@ -1862,12 +1863,15 @@ fn cargo_rustc_current_dir_foreign_workspace_dep() {
             fn baz_env() {
                 let workspace_dir = Path::new(option_env!("CARGO_RUSTC_CURRENT_DIR").expect("CARGO_RUSTC_CURRENT_DIR"));
                 let manifest_dir = Path::new(option_env!("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
+                let manifest_path = Path::new(option_env!("CARGO_MANIFEST_PATH").expect("CARGO_MANIFEST_PATH"));
                 let current_dir = std::env::current_dir().expect("current_dir");
                 let file_path = workspace_dir.join(file!());
                 assert!(file_path.exists(), "{}", file_path.display());
                 let workspace_dir = std::fs::canonicalize(current_dir.join(workspace_dir)).expect("CARGO_RUSTC_CURRENT_DIR");
+                let manifest_path = std::fs::canonicalize(current_dir.join(manifest_dir.clone()).join("Cargo.toml")).expect("CARGO_MANIFEST_PATH");
                 let manifest_dir = std::fs::canonicalize(current_dir.join(manifest_dir)).expect("CARGO_MANIFEST_DIR");
-                assert_eq!(workspace_dir, manifest_dir);
+                assert_eq!(workspace_dir, manifest_dir.clone());
+                assert_eq!(manifest_dir.join("Cargo.toml"), manifest_path);
             }
         "#,
         )
@@ -1956,12 +1960,15 @@ fn cargo_rustc_current_dir_non_local_dep() {
             fn bar_env() {
                 let workspace_dir = Path::new(option_env!("CARGO_RUSTC_CURRENT_DIR").expect("CARGO_RUSTC_CURRENT_DIR"));
                 let manifest_dir = Path::new(option_env!("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
+                let manifest_path = Path::new(option_env!("CARGO_MANIFEST_PATH").expect("CARGO_MANIFEST_PATH"));
                 let current_dir = std::env::current_dir().expect("current_dir");
                 let file_path = workspace_dir.join(file!());
                 assert!(file_path.exists(), "{}", file_path.display());
                 let workspace_dir = std::fs::canonicalize(current_dir.join(workspace_dir)).expect("CARGO_RUSTC_CURRENT_DIR");
+                let manifest_path = std::fs::canonicalize(current_dir.join(manifest_dir.clone()).join("Cargo.toml")).expect("CARGO_MANIFEST_PATH");
                 let manifest_dir = std::fs::canonicalize(current_dir.join(manifest_dir)).expect("CARGO_MANIFEST_DIR");
-                assert_eq!(workspace_dir, manifest_dir);
+                assert_eq!(workspace_dir, manifest_dir.clone());
+                assert_eq!(manifest_dir.join("Cargo.toml"), manifest_path);
             }
         "#,
         )
@@ -4124,7 +4131,7 @@ fn panic_abort_compiles_with_panic_abort() {
         .run();
 }
 
-#[allow(deprecated)]
+#[expect(deprecated)]
 #[cargo_test]
 fn compiler_json_error_format() {
     let p = project()
@@ -4314,7 +4321,7 @@ fn wrong_message_format_option() {
         .run();
 }
 
-#[allow(deprecated)]
+#[expect(deprecated)]
 #[cargo_test]
 fn message_format_json_forward_stderr() {
     let p = project()
@@ -5177,7 +5184,7 @@ WRAPPER CALLED: rustc --crate-name foo [..]
         .run();
 }
 
-#[allow(deprecated)]
+#[expect(deprecated)]
 #[cargo_test]
 fn rustc_wrapper_queries() {
     // Check that the invocations querying rustc for information are done with the wrapper.
@@ -5917,7 +5924,7 @@ fn build_filter_infer_profile() {
         .run();
 }
 
-#[allow(deprecated)]
+#[expect(deprecated)]
 #[cargo_test]
 fn targets_selected_default() {
     let p = project().file("src/main.rs", "fn main() {}").build();
@@ -6871,7 +6878,7 @@ Caused by:
         .run();
 }
 
-#[allow(deprecated)]
+#[expect(deprecated)]
 #[cargo_test]
 fn build_script_o0_default() {
     let p = project()
@@ -6884,7 +6891,7 @@ fn build_script_o0_default() {
         .run();
 }
 
-#[allow(deprecated)]
+#[expect(deprecated)]
 #[cargo_test]
 fn build_script_o0_default_even_with_release() {
     let p = project()

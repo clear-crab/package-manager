@@ -437,7 +437,7 @@ fn build_only_bar_dependency() {
         .run();
 }
 
-#[allow(deprecated)]
+#[expect(deprecated)]
 #[cargo_test]
 fn targets_selected_default() {
     let p = project().file("src/main.rs", "fn main() {}").build();
@@ -589,7 +589,7 @@ fn rustc_with_other_profile() {
     p.cargo("rustc --profile test").run();
 }
 
-#[allow(deprecated)]
+#[expect(deprecated)]
 #[cargo_test]
 fn rustc_fingerprint() {
     // Verify that the fingerprint includes the rustc args.
@@ -792,6 +792,69 @@ windows
 ...
 "#]]
             .unordered(),
+        )
+        .run();
+}
+
+#[cargo_test]
+fn precedence() {
+    // Ensure that the precedence of cargo-rustc is only lower than RUSTFLAGS,
+    // but higher than most flags set by cargo.
+    //
+    // See rust-lang/cargo#14346
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+            [package]
+            name = "foo"
+            edition = "2021"
+
+            [lints.rust]
+            unexpected_cfgs = "allow"
+            "#,
+        )
+        .file("src/lib.rs", "")
+        .build();
+
+    p.cargo("rustc --release -v -- --cfg cargo_rustc -C strip=symbols")
+        .env("RUSTFLAGS", "--cfg from_rustflags")
+        .masquerade_as_nightly_cargo(&["cargo-rustc-precedence"])
+        .with_stderr_data(str![[r#"
+[COMPILING] foo v0.0.0 ([ROOT]/foo)
+[RUNNING] `rustc [..]-C strip=debuginfo [..]--cfg cargo_rustc -C strip=symbols --cfg from_rustflags`
+[FINISHED] `release` profile [optimized] target(s) in [ELAPSED]s
+
+"#]])
+        .run();
+
+    // Ensure the short-live env var to work
+    p.cargo("clean").run();
+    p.cargo("rustc --release -v -- --cfg cargo_rustc -C strip=symbols")
+        .env("RUSTFLAGS", "--cfg from_rustflags")
+        .env("__CARGO_RUSTC_ORIG_ARGS_PRIO", "1")
+        .masquerade_as_nightly_cargo(&["cargo-rustc-precedence"])
+        .with_stderr_data(
+            str![[r#"
+[COMPILING] foo v0.0.0 ([ROOT]/foo)
+[RUNNING] `rustc [..]--cfg cargo_rustc -C strip=symbols [..]-C strip=debuginfo [..]--cfg from_rustflags`
+[FINISHED] `release` profile [optimized] target(s) in [ELAPSED]s
+
+"#]]
+        )
+        .run();
+
+    // Ensure non-nightly to work as before
+    p.cargo("clean").run();
+    p.cargo("rustc --release -v -- --cfg cargo_rustc -C strip=symbols")
+        .env("RUSTFLAGS", "--cfg from_rustflags")
+        .with_stderr_data(
+            str![[r#"
+[COMPILING] foo v0.0.0 ([ROOT]/foo)
+[RUNNING] `rustc [..]--cfg cargo_rustc -C strip=symbols [..]-C strip=debuginfo [..]--cfg from_rustflags`
+[FINISHED] `release` profile [optimized] target(s) in [ELAPSED]s
+
+"#]]
         )
         .run();
 }

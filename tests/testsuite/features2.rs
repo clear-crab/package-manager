@@ -1153,7 +1153,7 @@ it is false
         .exists());
 }
 
-#[allow(deprecated)]
+#[expect(deprecated)]
 #[cargo_test]
 fn proc_macro_ws() {
     // Checks for bug with proc-macro in a workspace with dependency (shouldn't panic).
@@ -1800,6 +1800,7 @@ name = "a"
 version = "0.1.0"
 authors = ["Zzz"]
 build = false
+autolib = false
 autobins = false
 autoexamples = false
 autotests = false

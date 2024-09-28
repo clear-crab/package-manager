@@ -1327,6 +1327,7 @@ fn reports_unsuccessful_subcommand_result() {
     cargo_process("fail")
         .with_status(101)
         .with_stderr_data(str![[r#"
+...
 thread 'main' panicked at [ROOT]/home/.cargo/registry/src/-[HASH]/cargo-fail-1.0.0/src/main.rs:1:13:
 explicit panic
 [NOTE] run with `RUST_BACKTRACE=1` environment variable to display a backtrace
@@ -1437,7 +1438,7 @@ fn use_path_workspace() {
     assert_eq!(lock, lock2, "different lockfiles");
 }
 
-#[allow(deprecated)]
+#[expect(deprecated)]
 #[cargo_test]
 fn path_install_workspace_root_despite_default_members() {
     let p = project()
@@ -1484,7 +1485,7 @@ fn path_install_workspace_root_despite_default_members() {
         .run();
 }
 
-#[allow(deprecated)]
+#[expect(deprecated)]
 #[cargo_test]
 fn git_install_workspace_root_despite_default_members() {
     let p = git::repo(&paths::root().join("foo"))
@@ -2087,7 +2088,7 @@ fn install_path_config() {
         .run();
 }
 
-#[allow(deprecated)]
+#[expect(deprecated)]
 #[cargo_test]
 fn install_version_req() {
     // Try using a few versionreq styles.

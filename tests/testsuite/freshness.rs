@@ -1617,7 +1617,7 @@ fn reuse_panic_pm() {
     // bar is built once without panic (for proc-macro) and once with (for the
     // normal dependency).
     // TODO: Migrating to Snapbox might cause flakyness here. See https://github.com/rust-lang/cargo/pull/14161/files#r1660071433
-    #[allow(deprecated)]
+    #[expect(deprecated)]
     p.cargo("build -v")
             .with_stderr_unordered(
                 "\
@@ -1891,6 +1891,7 @@ test t1 ... FAILED
 failures:
 
 ---- t1 stdout ----
+...
 thread 't1' panicked at src/lib.rs:8:21:
 assertion `left == right` failed: doit assert failure
   left: 2
@@ -1958,6 +1959,7 @@ Caused by:
   cargo::rerun-if-changed=build.rs
 
   --- stderr
+...
   thread 'main' panicked at helper.rs:1:16:
   Crash!
   [NOTE] run with `RUST_BACKTRACE=1` environment variable to display a backtrace
@@ -1977,6 +1979,7 @@ Caused by:
   cargo::rerun-if-changed=build.rs
 
   --- stderr
+...
   thread 'main' panicked at helper.rs:1:16:
   Crash!
   [NOTE] run with `RUST_BACKTRACE=1` environment variable to display a backtrace

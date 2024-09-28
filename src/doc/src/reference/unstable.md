@@ -348,7 +348,9 @@ This was stabilized in 1.79 in [#13608](https://github.com/rust-lang/cargo/pull/
 - `package.edition = "2024"` (only in workspace root)
 
 The resolver will prefer dependencies with a `package.rust-version` that is the same or older than your project's MSRV.
-Your project's MSRV is determined by taking the lowest `package.rust-version` set among your workspace members.
+As the resolver is unable to determine which workspace members will eventually
+depend on a package when it is being selected, we prioritize versions based on
+how many workspace member MSRVs they are compatible with.
 If there is no MSRV set then your toolchain version will be used, allowing it to pick up the toolchain version from pinned in rustup (e.g. `rust-toolchain.toml`).
 
 #### `resolver.incompatible-rust-versions`
@@ -1312,7 +1314,7 @@ Inferred / defaulted manifest fields:
 
 Disallowed manifest fields:
 - `[workspace]`, `[lib]`, `[[bin]]`, `[[example]]`, `[[test]]`, `[[bench]]`
-- `package.workspace`, `package.build`, `package.links`, `package.autobins`, `package.autoexamples`, `package.autotests`, `package.autobenches`
+- `package.workspace`, `package.build`, `package.links`, `package.autolib`, `package.autobins`, `package.autoexamples`, `package.autotests`, `package.autobenches`
 
 The default `CARGO_TARGET_DIR` for single-file packages is at `$CARGO_HOME/target/<hash>`:
 - Avoid conflicts from multiple single-file packages being in the same directory
@@ -1464,7 +1466,7 @@ This will not affect any hard-coded paths in the source code, such as in strings
     Values in a non-empty array would be joined into a comma-separated list.
     If the build script introduces absolute paths to built artifacts (such as by invoking a compiler),
     the user may request them to be sanitized in different types of artifacts.
-    Common paths requiring sanitization include `OUT_DIR` and `CARGO_MANIFEST_DIR`,
+    Common paths requiring sanitization include `OUT_DIR`, `CARGO_MANIFEST_DIR` and `CARGO_MANIFEST_PATH`,
     plus any other introduced by the build script, such as include directories.
 
 ## gc
