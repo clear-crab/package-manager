@@ -93,8 +93,8 @@ sha2 = "0.10.8"
 shell-escape = "0.1.5"
 similar = "2.6.0"
 supports-hyperlinks = "3.0.0"
-snapbox = { version = "0.6.17", features = ["diff", "dir", "term-svg", "regex", "json"] }
-tar = { version = "0.4.41", default-features = false }
+snapbox = { version = "0.6.18", features = ["diff", "dir", "term-svg", "regex", "json"] }
+tar = { version = "0.4.42", default-features = false }
 tempfile = "3.10.1"
 thiserror = "1.0.63"
 time = { version = "0.3.36", features = ["parsing", "formatting", "serde"] }
@@ -104,7 +104,7 @@ tracing = { version = "0.1.40", default-features = false, features = ["std"] } #
 tracing-chrome = "0.7.2"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 unicase = "2.7.0"
-unicode-width = "0.1.13"
+unicode-width = "0.2.0"
 unicode-xid = "0.2.4"
 url = "2.5.2"
 varisat = "0.2.2"
