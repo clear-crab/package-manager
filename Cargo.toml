@@ -11,7 +11,7 @@ exclude = [
 ]
 
 [workspace.package]
-rust-version = "1.78"  # MSRV:3
+rust-version = "1.79"  # MSRV:3
 edition = "2021"
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/rust-lang/cargo"
@@ -32,7 +32,7 @@ cargo-credential-macos-keychain = { version = "0.4.7", path = "credential/cargo-
 cargo-credential-wincred = { version = "0.4.7", path = "credential/cargo-credential-wincred" }
 cargo-platform = { path = "crates/cargo-platform", version = "0.1.5" }
 cargo-test-macro = { version = "0.3.0", path = "crates/cargo-test-macro" }
-cargo-test-support = { version = "0.5.0", path = "crates/cargo-test-support" }
+cargo-test-support = { version = "0.6.0", path = "crates/cargo-test-support" }
 cargo-util = { version = "0.2.14", path = "crates/cargo-util" }
 cargo-util-schemas = { version = "0.7.0", path = "crates/cargo-util-schemas" }
 cargo_metadata = "0.18.1"
@@ -129,10 +129,10 @@ self_named_module_files = "warn"
 
 [package]
 name = "cargo"
-version = "0.84.0"
+version = "0.85.0"
 edition.workspace = true
 license.workspace = true
-rust-version = "1.81"  # MSRV:1
+rust-version = "1.82"  # MSRV:1
 homepage = "https://doc.rust-lang.org/cargo/index.html"
 repository.workspace = true
 documentation = "https://docs.rs/cargo"
