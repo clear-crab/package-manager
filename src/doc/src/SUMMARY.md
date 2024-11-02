@@ -81,7 +81,6 @@
         * [cargo tree](commands/cargo-tree.md)
         * [cargo update](commands/cargo-update.md)
         * [cargo vendor](commands/cargo-vendor.md)
-        * [cargo verify-project](commands/cargo-verify-project.md)
     * [Package Commands](commands/package-commands.md)
         * [cargo init](commands/cargo-init.md)
         * [cargo install](commands/cargo-install.md)
@@ -95,6 +94,7 @@
         * [cargo package](commands/cargo-package.md)
         * [cargo publish](commands/cargo-publish.md)
         * [cargo yank](commands/cargo-yank.md)
+    * [Deprecated and Removed](commands/deprecated-and-removed.md)
 
 * [FAQ](faq.md)
 * [Appendix: Glossary](appendix/glossary.md)
