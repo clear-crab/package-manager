@@ -43,7 +43,7 @@
 
 use crate::cross_compile::try_alternate;
 use crate::paths;
-use crate::{diff, rustc_host};
+use crate::rustc_host;
 use anyhow::{bail, Result};
 use snapbox::Data;
 use snapbox::IntoData;
@@ -51,7 +51,6 @@ use std::fmt;
 use std::path::Path;
 use std::path::PathBuf;
 use std::str;
-use url::Url;
 
 /// This makes it easier to write regex replacements that are guaranteed to only
 /// get compiled once
@@ -332,169 +331,24 @@ static E2E_LITERAL_REDACTIONS: &[(&str, &str)] = &[
     ("[OPENING]", "     Opening"),
 ];
 
-/// Normalizes the output so that it can be compared against the expected value.
-fn normalize_actual(actual: &str, cwd: Option<&Path>) -> String {
-    // It's easier to read tabs in outputs if they don't show up as literal
-    // hidden characters
-    let actual = actual.replace('\t', "<tab>");
-    if cfg!(windows) {
-        // Let's not deal with \r\n vs \n on windows...
-        let actual = actual.replace('\r', "");
-        normalize_windows(&actual, cwd)
-    } else {
-        actual
-    }
-}
-
-/// Normalizes the expected string so that it can be compared against the actual output.
-fn normalize_expected(expected: &str, cwd: Option<&Path>) -> String {
-    let expected = replace_dirty_msvc(expected);
-    let expected = substitute_macros(&expected);
-
-    if cfg!(windows) {
-        normalize_windows(&expected, cwd)
-    } else {
-        let expected = match cwd {
-            None => expected,
-            Some(cwd) => expected.replace("[CWD]", &cwd.display().to_string()),
-        };
-        let expected = expected.replace("[ROOT]", &paths::root().display().to_string());
-        expected
-    }
-}
-
-fn replace_dirty_msvc_impl(s: &str, is_msvc: bool) -> String {
-    if is_msvc {
-        s.replace("[DIRTY-MSVC]", "[DIRTY]")
-    } else {
-        use itertools::Itertools;
-
-        let mut new = s
-            .lines()
-            .filter(|it| !it.starts_with("[DIRTY-MSVC]"))
-            .join("\n");
-
-        if s.ends_with("\n") {
-            new.push_str("\n");
-        }
-
-        new
-    }
-}
-
-fn replace_dirty_msvc(s: &str) -> String {
-    replace_dirty_msvc_impl(s, cfg!(target_env = "msvc"))
-}
-
-/// Normalizes text for both actual and expected strings on Windows.
-fn normalize_windows(text: &str, cwd: Option<&Path>) -> String {
-    // Let's not deal with / vs \ (windows...)
-    let text = text.replace('\\', "/");
-
-    // Weirdness for paths on Windows extends beyond `/` vs `\` apparently.
-    // Namely paths like `c:\` and `C:\` are equivalent and that can cause
-    // issues. The return value of `env::current_dir()` may return a
-    // lowercase drive name, but we round-trip a lot of values through `Url`
-    // which will auto-uppercase the drive name. To just ignore this
-    // distinction we try to canonicalize as much as possible, taking all
-    // forms of a path and canonicalizing them to one.
-    let replace_path = |s: &str, path: &Path, with: &str| {
-        let path_through_url = Url::from_file_path(path).unwrap().to_file_path().unwrap();
-        let path1 = path.display().to_string().replace('\\', "/");
-        let path2 = path_through_url.display().to_string().replace('\\', "/");
-        s.replace(&path1, with)
-            .replace(&path2, with)
-            .replace(with, &path1)
-    };
-
-    let text = match cwd {
-        None => text,
-        Some(p) => replace_path(&text, p, "[CWD]"),
-    };
-
-    // Similar to cwd above, perform similar treatment to the root path
-    // which in theory all of our paths should otherwise get rooted at.
-    let root = paths::root();
-    let text = replace_path(&text, &root, "[ROOT]");
-
-    text
-}
-
-fn substitute_macros(input: &str) -> String {
-    let mut result = input.to_owned();
-    for &(pat, subst) in MIN_LITERAL_REDACTIONS {
-        result = result.replace(pat, subst)
-    }
-    for &(pat, subst) in E2E_LITERAL_REDACTIONS {
-        result = result.replace(pat, subst)
-    }
-    result
-}
-
-/// Checks that the given string contains the given lines, ignoring the order
-/// of the lines.
-///
-/// See [Patterns](index.html#patterns) for more information on pattern matching.
-pub(crate) fn match_unordered(expected: &str, actual: &str, cwd: Option<&Path>) -> Result<()> {
-    let expected = normalize_expected(expected, cwd);
-    let actual = normalize_actual(actual, cwd);
-    let e: Vec<_> = expected.lines().map(|line| WildStr::new(line)).collect();
-    let mut a: Vec<_> = actual.lines().map(|line| WildStr::new(line)).collect();
-    // match more-constrained lines first, although in theory we'll
-    // need some sort of recursive match here. This handles the case
-    // that you expect "a\n[..]b" and two lines are printed out,
-    // "ab\n"a", where technically we do match unordered but a naive
-    // search fails to find this. This simple sort at least gets the
-    // test suite to pass for now, but we may need to get more fancy
-    // if tests start failing again.
-    a.sort_by_key(|s| s.line.len());
-    let mut changes = Vec::new();
-    let mut a_index = 0;
-    let mut failure = false;
-
-    use crate::diff::Change;
-    for (e_i, e_line) in e.into_iter().enumerate() {
-        match a.iter().position(|a_line| e_line == *a_line) {
-            Some(index) => {
-                let a_line = a.remove(index);
-                changes.push(Change::Keep(e_i, index, a_line));
-                a_index += 1;
-            }
-            None => {
-                failure = true;
-                changes.push(Change::Remove(e_i, e_line));
-            }
-        }
-    }
-    for unmatched in a {
-        failure = true;
-        changes.push(Change::Add(a_index, unmatched));
-        a_index += 1;
-    }
-    if failure {
-        bail!(
-            "Expected lines did not match (ignoring order):\n{}\n",
-            diff::render_colored_changes(&changes)
-        );
-    } else {
-        Ok(())
-    }
-}
-
 /// Checks that the given string contains the given contiguous lines
 /// somewhere.
 ///
 /// See [Patterns](index.html#patterns) for more information on pattern matching.
-pub(crate) fn match_contains(expected: &str, actual: &str, cwd: Option<&Path>) -> Result<()> {
-    let expected = normalize_expected(expected, cwd);
-    let actual = normalize_actual(actual, cwd);
+pub(crate) fn match_contains(
+    expected: &str,
+    actual: &str,
+    redactions: &snapbox::Redactions,
+) -> Result<()> {
+    let expected = normalize_expected(expected, redactions);
+    let actual = normalize_actual(actual, redactions);
     let e: Vec<_> = expected.lines().map(|line| WildStr::new(line)).collect();
-    let a: Vec<_> = actual.lines().map(|line| WildStr::new(line)).collect();
+    let a: Vec<_> = actual.lines().collect();
     if e.len() == 0 {
         bail!("expected length must not be zero");
     }
     for window in a.windows(e.len()) {
-        if window == e {
+        if e == window {
             return Ok(());
         }
     }
@@ -515,9 +369,9 @@ pub(crate) fn match_contains(expected: &str, actual: &str, cwd: Option<&Path>) -
 pub(crate) fn match_does_not_contain(
     expected: &str,
     actual: &str,
-    cwd: Option<&Path>,
+    redactions: &snapbox::Redactions,
 ) -> Result<()> {
-    if match_contains(expected, actual, cwd).is_ok() {
+    if match_contains(expected, actual, redactions).is_ok() {
         bail!(
             "expected not to find:\n\
              {}\n\n\
@@ -542,10 +396,10 @@ pub(crate) fn match_with_without(
     actual: &str,
     with: &[String],
     without: &[String],
-    cwd: Option<&Path>,
+    redactions: &snapbox::Redactions,
 ) -> Result<()> {
-    let actual = normalize_actual(actual, cwd);
-    let norm = |s: &String| format!("[..]{}[..]", normalize_expected(s, cwd));
+    let actual = normalize_actual(actual, redactions);
+    let norm = |s: &String| format!("[..]{}[..]", normalize_expected(s, redactions));
     let with: Vec<_> = with.iter().map(norm).collect();
     let without: Vec<_> = without.iter().map(norm).collect();
     let with_wild: Vec<_> = with.iter().map(|w| WildStr::new(w)).collect();
@@ -553,7 +407,6 @@ pub(crate) fn match_with_without(
 
     let matches: Vec<_> = actual
         .lines()
-        .map(WildStr::new)
         .filter(|line| with_wild.iter().all(|with| with == line))
         .filter(|line| !without_wild.iter().any(|without| without == line))
         .collect();
@@ -582,14 +435,35 @@ pub(crate) fn match_with_without(
     }
 }
 
+/// Normalizes the output so that it can be compared against the expected value.
+fn normalize_actual(content: &str, redactions: &snapbox::Redactions) -> String {
+    use snapbox::filter::Filter as _;
+    let content = snapbox::filter::FilterPaths.filter(content.into_data());
+    let content = snapbox::filter::FilterNewlines.filter(content);
+    let content = content.render().expect("came in as a String");
+    let content = redactions.redact(&content);
+    content
+}
+
+/// Normalizes the expected string so that it can be compared against the actual output.
+fn normalize_expected(content: &str, redactions: &snapbox::Redactions) -> String {
+    use snapbox::filter::Filter as _;
+    let content = snapbox::filter::FilterPaths.filter(content.into_data());
+    let content = snapbox::filter::FilterNewlines.filter(content);
+    // Remove any conditionally absent redactions like `[EXE]`
+    let content = content.render().expect("came in as a String");
+    let content = redactions.clear_unused(&content);
+    content.into_owned()
+}
+
 /// A single line string that supports `[..]` wildcard matching.
-pub(crate) struct WildStr<'a> {
+struct WildStr<'a> {
     has_meta: bool,
     line: &'a str,
 }
 
 impl<'a> WildStr<'a> {
-    pub fn new(line: &'a str) -> WildStr<'a> {
+    fn new(line: &'a str) -> WildStr<'a> {
         WildStr {
             has_meta: line.contains("[..]"),
             line,
@@ -597,13 +471,12 @@ impl<'a> WildStr<'a> {
     }
 }
 
-impl<'a> PartialEq for WildStr<'a> {
-    fn eq(&self, other: &Self) -> bool {
-        match (self.has_meta, other.has_meta) {
-            (false, false) => self.line == other.line,
-            (true, false) => meta_cmp(self.line, other.line),
-            (false, true) => meta_cmp(other.line, self.line),
-            (true, true) => panic!("both lines cannot have [..]"),
+impl PartialEq<&str> for WildStr<'_> {
+    fn eq(&self, other: &&str) -> bool {
+        if self.has_meta {
+            meta_cmp(self.line, other)
+        } else {
+            self.line == *other
         }
     }
 }
@@ -791,122 +664,11 @@ mod test {
             ("[..]", "a b"),
             ("[..]b", "a b"),
         ] {
-            assert_eq!(WildStr::new(a), WildStr::new(b));
+            assert_eq!(WildStr::new(a), b);
         }
         for (a, b) in &[("[..]b", "c"), ("b", "c"), ("b", "cb")] {
-            assert_ne!(WildStr::new(a), WildStr::new(b));
+            assert_ne!(WildStr::new(a), b);
         }
-    }
-
-    #[test]
-    fn dirty_msvc() {
-        let case = |expected: &str, wild: &str, msvc: bool| {
-            assert_eq!(expected, &replace_dirty_msvc_impl(wild, msvc));
-        };
-
-        // no replacements
-        case("aa", "aa", false);
-        case("aa", "aa", true);
-
-        // with replacements
-        case(
-            "\
-[DIRTY] a",
-            "\
-[DIRTY-MSVC] a",
-            true,
-        );
-        case(
-            "",
-            "\
-[DIRTY-MSVC] a",
-            false,
-        );
-        case(
-            "\
-[DIRTY] a
-[COMPILING] a",
-            "\
-[DIRTY-MSVC] a
-[COMPILING] a",
-            true,
-        );
-        case(
-            "\
-[COMPILING] a",
-            "\
-[DIRTY-MSVC] a
-[COMPILING] a",
-            false,
-        );
-
-        // test trailing newline behavior
-        case(
-            "\
-A
-B
-", "\
-A
-B
-", true,
-        );
-
-        case(
-            "\
-A
-B
-", "\
-A
-B
-", false,
-        );
-
-        case(
-            "\
-A
-B", "\
-A
-B", true,
-        );
-
-        case(
-            "\
-A
-B", "\
-A
-B", false,
-        );
-
-        case(
-            "\
-[DIRTY] a
-",
-            "\
-[DIRTY-MSVC] a
-",
-            true,
-        );
-        case(
-            "\n",
-            "\
-[DIRTY-MSVC] a
-",
-            false,
-        );
-
-        case(
-            "\
-[DIRTY] a",
-            "\
-[DIRTY-MSVC] a",
-            true,
-        );
-        case(
-            "",
-            "\
-[DIRTY-MSVC] a",
-            false,
-        );
     }
 
     #[test]

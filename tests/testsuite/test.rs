@@ -1809,7 +1809,6 @@ test test_in_bench ... ok
         .run();
 }
 
-#[expect(deprecated)]
 #[cargo_test]
 fn test_run_implicit_example_target() {
     let prj = project()
@@ -1897,7 +1896,6 @@ fn test_run_implicit_example_target() {
         .run();
 }
 
-#[expect(deprecated)]
 #[cargo_test]
 fn test_filtered_excludes_compiling_examples() {
     let p = project()
@@ -3596,7 +3594,6 @@ test b ... ok
         .run();
 }
 
-#[expect(deprecated)]
 #[cargo_test]
 fn test_virtual_manifest_one_project() {
     let p = project()
@@ -3619,7 +3616,6 @@ fn test_virtual_manifest_one_project() {
         .run();
 }
 
-#[expect(deprecated)]
 #[cargo_test]
 fn test_virtual_manifest_glob() {
     let p = project()
@@ -3872,7 +3868,6 @@ fn doctest_and_registry() {
     p.cargo("test --workspace -v").run();
 }
 
-#[expect(deprecated)]
 #[cargo_test]
 fn cargo_test_env() {
     let src = format!(
@@ -3893,9 +3888,14 @@ fn cargo_test_env() {
         .file("src/lib.rs", &src)
         .build();
 
-    let cargo = cargo_exe().canonicalize().unwrap();
+    let cargo = cargo_exe()
+        .canonicalize()
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .replace(std::env::consts::EXE_SUFFIX, "[EXE]");
     p.cargo("test --lib -- --nocapture")
-        .with_stderr_contains(cargo.to_str().unwrap())
+        .with_stderr_contains(cargo)
         .with_stdout_data(str![[r#"
 ...
 test env_test ... ok
@@ -3908,11 +3908,14 @@ test env_test ... ok
         .unwrap()
         .canonicalize()
         .unwrap();
-    let rustc = rustc.to_str().unwrap();
+    let stderr_rustc = rustc
+        .to_str()
+        .unwrap()
+        .replace(std::env::consts::EXE_SUFFIX, "[EXE]");
     p.cargo("test --lib -- --nocapture")
         // we use rustc since $CARGO is only used if it points to a path that exists
         .env(cargo::CARGO_ENV, rustc)
-        .with_stderr_contains(rustc)
+        .with_stderr_contains(stderr_rustc)
         .with_stdout_data(str![[r#"
 ...
 test env_test ... ok
@@ -4559,7 +4562,6 @@ fn doctest_skip_staticlib() {
         .run();
 }
 
-#[expect(deprecated)]
 #[cargo_test]
 fn can_not_mix_doc_tests_and_regular_tests() {
     let p = project()
@@ -5411,7 +5413,6 @@ Caused by:
         .run();
 }
 
-#[expect(deprecated)]
 #[cargo_test]
 fn nonzero_exit_status() {
     // Tests for nonzero exit codes from tests.

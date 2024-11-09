@@ -105,7 +105,6 @@ pub use cargo_test_macro::cargo_test;
 pub mod compare;
 pub mod containers;
 pub mod cross_compile;
-mod diff;
 pub mod git;
 pub mod install;
 pub mod paths;
@@ -651,8 +650,6 @@ pub struct Execs {
     expect_stderr_contains: Vec<String>,
     expect_stdout_not_contains: Vec<String>,
     expect_stderr_not_contains: Vec<String>,
-    expect_stdout_unordered: Vec<String>,
-    expect_stderr_unordered: Vec<String>,
     expect_stderr_with_without: Vec<(Vec<String>, Vec<String>)>,
     stream_output: bool,
     assert: snapbox::Assert,
@@ -670,6 +667,57 @@ impl Execs {
     /// Verifies that stdout is equal to the given lines.
     ///
     /// See [`compare::assert_e2e`] for assertion details.
+    ///
+    /// <div class="warning">
+    ///
+    /// Prefer passing in [`str!`] for `expected` to get snapshot updating.
+    ///
+    /// If `format!` is needed for content that changes from run to run that you don't care about,
+    /// consider whether you could have [`compare::assert_e2e`] redact the content.
+    /// If nothing else, a wildcard (`[..]`, `...`) may be useful.
+    ///
+    /// However, `""` may be preferred for intentionally empty output so people don't accidentally
+    /// bless a change.
+    ///
+    /// </div>
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use cargo_test_support::prelude::*;
+    /// use cargo_test_support::str;
+    /// use cargo_test_support::execs;
+    ///
+    /// execs().with_stdout_data(str![r#"
+    /// Hello world!
+    /// "#]);
+    /// ```
+    ///
+    /// Non-deterministic compiler output
+    /// ```no_run
+    /// use cargo_test_support::prelude::*;
+    /// use cargo_test_support::str;
+    /// use cargo_test_support::execs;
+    ///
+    /// execs().with_stdout_data(str![r#"
+    /// [COMPILING] foo
+    /// [COMPILING] bar
+    /// "#].unordered());
+    /// ```
+    ///
+    /// jsonlines
+    /// ```no_run
+    /// use cargo_test_support::prelude::*;
+    /// use cargo_test_support::str;
+    /// use cargo_test_support::execs;
+    ///
+    /// execs().with_stdout_data(str![r#"
+    /// [
+    ///   {},
+    ///   {}
+    /// ]
+    /// "#].is_json().against_jsonlines());
+    /// ```
     pub fn with_stdout_data(&mut self, expected: impl snapbox::IntoData) -> &mut Self {
         self.expect_stdout_data = Some(expected.into_data());
         self
@@ -678,6 +726,57 @@ impl Execs {
     /// Verifies that stderr is equal to the given lines.
     ///
     /// See [`compare::assert_e2e`] for assertion details.
+    ///
+    /// <div class="warning">
+    ///
+    /// Prefer passing in [`str!`] for `expected` to get snapshot updating.
+    ///
+    /// If `format!` is needed for content that changes from run to run that you don't care about,
+    /// consider whether you could have [`compare::assert_e2e`] redact the content.
+    /// If nothing else, a wildcard (`[..]`, `...`) may be useful.
+    ///
+    /// However, `""` may be preferred for intentionally empty output so people don't accidentally
+    /// bless a change.
+    ///
+    /// </div>
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use cargo_test_support::prelude::*;
+    /// use cargo_test_support::str;
+    /// use cargo_test_support::execs;
+    ///
+    /// execs().with_stderr_data(str![r#"
+    /// Hello world!
+    /// "#]);
+    /// ```
+    ///
+    /// Non-deterministic compiler output
+    /// ```no_run
+    /// use cargo_test_support::prelude::*;
+    /// use cargo_test_support::str;
+    /// use cargo_test_support::execs;
+    ///
+    /// execs().with_stderr_data(str![r#"
+    /// [COMPILING] foo
+    /// [COMPILING] bar
+    /// "#].unordered());
+    /// ```
+    ///
+    /// jsonlines
+    /// ```no_run
+    /// use cargo_test_support::prelude::*;
+    /// use cargo_test_support::str;
+    /// use cargo_test_support::execs;
+    ///
+    /// execs().with_stderr_data(str![r#"
+    /// [
+    ///   {},
+    ///   {}
+    /// ]
+    /// "#].is_json().against_jsonlines());
+    /// ```
     pub fn with_stderr_data(&mut self, expected: impl snapbox::IntoData) -> &mut Self {
         self.expect_stderr_data = Some(expected.into_data());
         self
@@ -709,7 +808,14 @@ impl Execs {
     /// its output.
     ///
     /// See [`compare`] for supported patterns.
-    #[deprecated(note = "replaced with `Execs::with_stdout_data(expected)`")]
+    ///
+    /// <div class="warning">
+    ///
+    /// Prefer [`Execs::with_stdout_data`] where possible.
+    /// - `expected` cannot be snapshotted
+    /// - `expected` can end up being ambiguous, causing the assertion to succeed when it should fail
+    ///
+    /// </div>
     pub fn with_stdout_contains<S: ToString>(&mut self, expected: S) -> &mut Self {
         self.expect_stdout_contains.push(expected.to_string());
         self
@@ -719,7 +825,14 @@ impl Execs {
     /// its output.
     ///
     /// See [`compare`] for supported patterns.
-    #[deprecated(note = "replaced with `Execs::with_stderr_data(expected)`")]
+    ///
+    /// <div class="warning">
+    ///
+    /// Prefer [`Execs::with_stderr_data`] where possible.
+    /// - `expected` cannot be snapshotted
+    /// - `expected` can end up being ambiguous, causing the assertion to succeed when it should fail
+    ///
+    /// </div>
     pub fn with_stderr_contains<S: ToString>(&mut self, expected: S) -> &mut Self {
         self.expect_stderr_contains.push(expected.to_string());
         self
@@ -730,7 +843,18 @@ impl Execs {
     /// See [`compare`] for supported patterns.
     ///
     /// See note on [`Self::with_stderr_does_not_contain`].
-    #[deprecated]
+    ///
+    /// <div class="warning">
+    ///
+    /// Prefer [`Execs::with_stdout_data`] where possible.
+    /// - `expected` cannot be snapshotted
+    /// - The absence of `expected` can either mean success or that the string being looked for
+    ///   changed.
+    ///
+    /// To mitigate this, consider matching this up with
+    /// [`Execs::with_stdout_contains`].
+    ///
+    /// </div>
     pub fn with_stdout_does_not_contain<S: ToString>(&mut self, expected: S) -> &mut Self {
         self.expect_stdout_not_contains.push(expected.to_string());
         self
@@ -740,58 +864,38 @@ impl Execs {
     ///
     /// See [`compare`] for supported patterns.
     ///
-    /// Care should be taken when using this method because there is a
-    /// limitless number of possible things that *won't* appear. A typo means
-    /// your test will pass without verifying the correct behavior. If
-    /// possible, write the test first so that it fails, and then implement
-    /// your fix/feature to make it pass.
-    #[deprecated]
+    /// <div class="warning">
+    ///
+    /// Prefer [`Execs::with_stdout_data`] where possible.
+    /// - `expected` cannot be snapshotted
+    /// - The absence of `expected` can either mean success or that the string being looked for
+    ///   changed.
+    ///
+    /// To mitigate this, consider either matching this up with
+    /// [`Execs::with_stdout_contains`] or replace it
+    /// with [`Execs::with_stderr_line_without`].
+    ///
+    /// </div>
     pub fn with_stderr_does_not_contain<S: ToString>(&mut self, expected: S) -> &mut Self {
         self.expect_stderr_not_contains.push(expected.to_string());
-        self
-    }
-
-    /// Verifies that all of the stdout output is equal to the given lines,
-    /// ignoring the order of the lines.
-    ///
-    /// See [`Execs::with_stderr_unordered`] for more details.
-    #[deprecated(note = "replaced with `Execs::with_stdout_data(expected.unordered())`")]
-    pub fn with_stdout_unordered<S: ToString>(&mut self, expected: S) -> &mut Self {
-        self.expect_stdout_unordered.push(expected.to_string());
-        self
-    }
-
-    /// Verifies that all of the stderr output is equal to the given lines,
-    /// ignoring the order of the lines.
-    ///
-    /// See [`compare`] for supported patterns.
-    ///
-    /// This is useful when checking the output of `cargo build -v` since
-    /// the order of the output is not always deterministic.
-    /// Recommend use `with_stderr_contains` instead unless you really want to
-    /// check *every* line of output.
-    ///
-    /// Be careful when using patterns such as `[..]`, because you may end up
-    /// with multiple lines that might match, and this is not smart enough to
-    /// do anything like longest-match. For example, avoid something like:
-    ///
-    /// ```text
-    ///  [RUNNING] `rustc [..]
-    ///  [RUNNING] `rustc --crate-name foo [..]
-    /// ```
-    ///
-    /// This will randomly fail if the other crate name is `bar`, and the
-    /// order changes.
-    #[deprecated(note = "replaced with `Execs::with_stderr_data(expected.unordered())`")]
-    pub fn with_stderr_unordered<S: ToString>(&mut self, expected: S) -> &mut Self {
-        self.expect_stderr_unordered.push(expected.to_string());
         self
     }
 
     /// Verify that a particular line appears in stderr with and without the
     /// given substrings. Exactly one line must match.
     ///
-    /// The substrings are matched as `contains`. Example:
+    /// The substrings are matched as `contains`.
+    ///
+    /// <div class="warning">
+    ///
+    /// Prefer [`Execs::with_stdout_data`] where possible.
+    /// - `with` cannot be snapshotted
+    /// - The absence of `without`` can either mean success or that the string being looked for
+    ///   changed.
+    ///
+    /// </div>
+    ///
+    /// # Example
     ///
     /// ```no_run
     /// use cargo_test_support::execs;
@@ -808,9 +912,6 @@ impl Execs {
     /// This will check that a build line includes `-C opt-level=3` but does
     /// not contain `-C debuginfo` or `-C incremental`.
     ///
-    /// Be careful writing the `without` fragments, see note in
-    /// `with_stderr_does_not_contain`.
-    #[deprecated]
     pub fn with_stderr_line_without<S: ToString>(
         &mut self,
         with: &[S],
@@ -858,10 +959,6 @@ impl Execs {
             }
         }
         self
-    }
-
-    fn get_cwd(&self) -> Option<&Path> {
-        self.process_builder.as_ref().and_then(|p| p.get_cwd())
     }
 
     pub fn env<T: AsRef<OsStr>>(&mut self, key: &str, val: T) -> &mut Self {
@@ -993,8 +1090,6 @@ impl Execs {
             && self.expect_stderr_contains.is_empty()
             && self.expect_stdout_not_contains.is_empty()
             && self.expect_stderr_not_contains.is_empty()
-            && self.expect_stdout_unordered.is_empty()
-            && self.expect_stderr_unordered.is_empty()
             && self.expect_stderr_with_without.is_empty()
         {
             panic!(
@@ -1063,7 +1158,6 @@ impl Execs {
         self.verify_checks_output(stdout, stderr);
         let stdout = std::str::from_utf8(stdout).expect("stdout is not utf8");
         let stderr = std::str::from_utf8(stderr).expect("stderr is not utf8");
-        let cwd = self.get_cwd();
 
         match self.expect_exit_code {
             None => {}
@@ -1096,25 +1190,19 @@ impl Execs {
             }
         }
         for expect in self.expect_stdout_contains.iter() {
-            compare::match_contains(expect, stdout, cwd)?;
+            compare::match_contains(expect, stdout, self.assert.redactions())?;
         }
         for expect in self.expect_stderr_contains.iter() {
-            compare::match_contains(expect, stderr, cwd)?;
+            compare::match_contains(expect, stderr, self.assert.redactions())?;
         }
         for expect in self.expect_stdout_not_contains.iter() {
-            compare::match_does_not_contain(expect, stdout, cwd)?;
+            compare::match_does_not_contain(expect, stdout, self.assert.redactions())?;
         }
         for expect in self.expect_stderr_not_contains.iter() {
-            compare::match_does_not_contain(expect, stderr, cwd)?;
-        }
-        for expect in self.expect_stdout_unordered.iter() {
-            compare::match_unordered(expect, stdout, cwd)?;
-        }
-        for expect in self.expect_stderr_unordered.iter() {
-            compare::match_unordered(expect, stderr, cwd)?;
+            compare::match_does_not_contain(expect, stderr, self.assert.redactions())?;
         }
         for (with, without) in self.expect_stderr_with_without.iter() {
-            compare::match_with_without(stderr, with, without, cwd)?;
+            compare::match_with_without(stderr, with, without, self.assert.redactions())?;
         }
         Ok(())
     }
@@ -1141,8 +1229,6 @@ pub fn execs() -> Execs {
         expect_stderr_contains: Vec::new(),
         expect_stdout_not_contains: Vec::new(),
         expect_stderr_not_contains: Vec::new(),
-        expect_stdout_unordered: Vec::new(),
-        expect_stderr_unordered: Vec::new(),
         expect_stderr_with_without: Vec::new(),
         stream_output: false,
         assert: compare::assert_e2e(),

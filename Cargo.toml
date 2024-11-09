@@ -81,7 +81,7 @@ rand = "0.8.5"
 regex = "1.10.5"
 rusqlite = { version = "0.32.0", features = ["bundled"] }
 rustc-hash = "2.0.0"
-rustfix = { version = "0.8.2", path = "crates/rustfix" }
+rustfix = { version = "0.9.0", path = "crates/rustfix" }
 same-file = "1.0.6"
 schemars = "0.8.21"
 security-framework = "3.0.0"
@@ -96,7 +96,7 @@ sha2 = "0.10.8"
 shell-escape = "0.1.5"
 similar = "2.6.0"
 supports-hyperlinks = "3.0.0"
-snapbox = { version = "0.6.18", features = ["diff", "dir", "term-svg", "regex", "json"] }
+snapbox = { version = "0.6.20", features = ["diff", "dir", "term-svg", "regex", "json"] }
 tar = { version = "0.4.42", default-features = false }
 tempfile = "3.10.1"
 thiserror = "1.0.63"
