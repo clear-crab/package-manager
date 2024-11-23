@@ -3143,7 +3143,7 @@ path = "src/lib.rs"
 }
 
 fn verify_packaged_status_line(
-    output: std::process::Output,
+    output: cargo_test_support::RawOutput,
     num_files: usize,
     uncompressed_size: u64,
     compressed_size: u64,
@@ -3228,7 +3228,7 @@ version = "0.0.1"
         + main_rs_contents.len()
         + cargo_toml_contents.len()
         + cargo_lock_contents.len()) as u64;
-    let output = p.cargo("package").exec_with_output().unwrap();
+    let output = p.cargo("package").run();
 
     assert!(p.root().join("target/package/foo-0.0.1.crate").is_file());
     p.cargo("package -l")
@@ -3333,7 +3333,7 @@ version = "0.0.1"
         + cargo_lock_contents.len()
         + bar_txt_contents.len()) as u64;
 
-    let output = p.cargo("package").exec_with_output().unwrap();
+    let output = p.cargo("package").run();
     assert!(p.root().join("target/package/foo-0.0.1.crate").is_file());
     p.cargo("package -l")
         .with_stdout_data(str![[r#"
@@ -3452,7 +3452,7 @@ version = "0.0.1"
         + cargo_lock_contents.len()
         + bar_txt_contents.len() * 2) as u64;
 
-    let output = p.cargo("package").exec_with_output().unwrap();
+    let output = p.cargo("package").run();
     assert!(p.root().join("target/package/foo-0.0.1.crate").is_file());
     p.cargo("package -l")
         .with_stdout_data(str![[r#"
@@ -3923,7 +3923,7 @@ See https://doc.rust-lang.org/cargo/reference/manifest.html#package-metadata for
 [PACKAGED] 6 files, [FILE_SIZE]B ([FILE_SIZE]B compressed)
 
 "#]])
-        .run()
+        .run();
 }
 
 #[cargo_test]
@@ -6056,20 +6056,21 @@ fn workspace_with_local_dep_already_published_nightly() {
     p.cargo("package -Zpackage-workspace")
         .masquerade_as_nightly_cargo(&["package-workspace"])
         .replace_crates_io(reg.index_url())
-        .with_status(101)
         .with_stderr_data(
             str![[r#"
 [PACKAGING] dep v0.1.0 ([ROOT]/foo/dep)
 [PACKAGING] main v0.0.1 ([ROOT]/foo/main)
 [UPDATING] crates.io index
-[ERROR] failed to prepare local package for uploading
-
-Caused by:
-  failed to get `dep` as a dependency of package `main v0.0.1 ([ROOT]/foo/main)`
-
-Caused by:
-  found a package in the remote registry and the local overlay: dep@0.1.0
 [PACKAGED] 4 files, [FILE_SIZE]B ([FILE_SIZE]B compressed)
+[PACKAGED] 4 files, [FILE_SIZE]B ([FILE_SIZE]B compressed)
+[VERIFYING] dep v0.1.0 ([ROOT]/foo/dep)
+[COMPILING] dep v0.1.0 ([ROOT]/foo/target/package/dep-0.1.0)
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [ELAPSED]s
+[VERIFYING] main v0.0.1 ([ROOT]/foo/main)
+[UNPACKING] dep v0.1.0 (registry `[ROOT]/foo/target/package/tmp-registry`)
+[COMPILING] dep v0.1.0
+[COMPILING] main v0.0.1 ([ROOT]/foo/target/package/main-0.0.1)
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [ELAPSED]s
 
 "#]]
             .unordered(),
