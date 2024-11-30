@@ -39,6 +39,8 @@ mod targets;
 
 use self::targets::to_targets;
 
+pub use embedded::ScriptSource;
+
 /// See also `bin/cargo/commands/run.rs`s `is_manifest_command`
 pub fn is_embedded(path: &Path) -> bool {
     let ext = path.extension();
@@ -1217,9 +1219,7 @@ pub fn to_real_manifest(
     //     features.require(Feature::edition20xx())?;
     // }
     // ```
-    if edition == Edition::Edition2024 {
-        features.require(Feature::edition2024())?;
-    } else if !edition.is_stable() {
+    if !edition.is_stable() {
         // Guard in case someone forgets to add .require()
         return Err(util::errors::internal(format!(
             "edition {} should be gated",
@@ -1314,6 +1314,7 @@ pub fn to_real_manifest(
     for (name, platform) in original_toml.target.iter().flatten() {
         let platform_kind: Platform = name.parse()?;
         platform_kind.check_cfg_attributes(warnings);
+        platform_kind.check_cfg_keywords(warnings, manifest_file);
         let platform_kind = Some(platform_kind);
         validate_dependencies(
             platform.dependencies.as_ref(),
