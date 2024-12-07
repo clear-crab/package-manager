@@ -22,14 +22,16 @@ fn llvm_profdata() -> Option<PathBuf> {
     })
 }
 
-#[cargo_test]
+// Rustc build may be without profiling support.
+// Mark it as nightly so it won't run on rust-lang/rust CI.
+#[cfg_attr(
+    target_os = "linux",
+    cargo_test(nightly, reason = "rust-lang/rust#133675")
+)]
+// macOS may emit different LLVM PGO warnings.
+// Windows LLVM has different requirements.
+#[cfg_attr(not(target_os = "linux"), cargo_test, ignore = "linux only")]
 fn pgo_works() {
-    if cfg!(not(target_os = "linux")) {
-        // macOS may emit different LLVM PGO warnings.
-        // Windows LLVM has different requirements.
-        return;
-    }
-
     let Some(llvm_profdata) = llvm_profdata() else {
         return;
     };
@@ -101,7 +103,6 @@ fn pgo_works() {
             ),
         )
         .with_stderr_data(str![[r#"
-[DIRTY] foo v0.0.0 ([ROOT]/foo): the rustflags changed
 [COMPILING] foo v0.0.0 ([ROOT]/foo)
 [RUNNING] `rustc [..]-Cprofile-use=[ROOT]/foo/target/merged.profdata -Cllvm-args=-pgo-warn-missing-function`
 [FINISHED] `release` profile [optimized] target(s) in [ELAPSED]s
