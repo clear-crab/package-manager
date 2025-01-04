@@ -342,7 +342,7 @@ dependencies = [
  "ignore",
  "im-rc",
  "indexmap 2.3.0",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "jobserver",
  "lazycell",
  "libc",
@@ -372,7 +372,7 @@ dependencies = [
  "supports-unicode",
  "tar",
  "tempfile",
- "thiserror 1.0.63",
+ "thiserror 2.0.3",
  "time",
  "toml",
  "toml_edit",
@@ -395,7 +395,7 @@ dependencies = [
  "serde",
  "serde_json",
  "snapbox",
- "thiserror 1.0.63",
+ "thiserror 2.0.3",
  "time",
  "windows-sys 0.59.0",
 ]
@@ -468,7 +468,7 @@ dependencies = [
  "flate2",
  "git2",
  "glob",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "pasetors",
  "regex",
  "serde",
@@ -514,7 +514,7 @@ dependencies = [
  "serde-value",
  "serde_json",
  "snapbox",
- "thiserror 1.0.63",
+ "thiserror 2.0.3",
  "toml",
  "unicode-xid",
  "url",
@@ -711,7 +711,7 @@ dependencies = [
  "percent-encoding",
  "serde",
  "serde_json",
- "thiserror 1.0.63",
+ "thiserror 2.0.3",
  "url",
 ]
 
@@ -1529,13 +1529,13 @@ dependencies = [
 
 [[package]]
 name = "gix-lock"
-version = "15.0.0"
+version = "15.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5102acdf4acae2644e38dbbd18cdfba9597a218f7d85f810fe5430207e03c2de"
+checksum = "1cd3ab68a452db63d9f3ebdacb10f30dba1fa0d31ac64f4203d395ed1102d940"
 dependencies = [
  "gix-tempfile",
  "gix-utils",
- "thiserror 1.0.63",
+ "thiserror 2.0.3",
 ]
 
 [[package]]
@@ -2183,9 +2183,9 @@ dependencies = [
 
 [[package]]
 name = "itertools"
-version = "0.13.0"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
+checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
 dependencies = [
  "either",
 ]
@@ -3109,7 +3109,7 @@ dependencies = [
  "serde_json",
  "similar",
  "tempfile",
- "thiserror 1.0.63",
+ "thiserror 2.0.3",
  "tracing",
  "tracing-subscriber",
 ]
@@ -4285,7 +4285,7 @@ dependencies = [
  "anyhow",
  "cargo",
  "clap",
- "itertools 0.13.0",
+ "itertools 0.14.0",
 ]
 
 [[package]]
