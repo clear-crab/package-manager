@@ -182,6 +182,44 @@ fn aliased_command(gctx: &GlobalContext, command: &str) -> CargoResult<Option<Ve
 
 /// List all runnable commands
 fn list_commands(gctx: &GlobalContext) -> BTreeMap<String, CommandInfo> {
+    let mut commands = third_party_subcommands(gctx);
+
+    for cmd in commands::builtin() {
+        commands.insert(
+            cmd.get_name().to_string(),
+            CommandInfo::BuiltIn {
+                about: cmd.get_about().map(|s| s.to_string()),
+            },
+        );
+    }
+
+    // Add the builtin_aliases and them descriptions to the
+    // `commands` `BTreeMap`.
+    for command in &BUILTIN_ALIASES {
+        commands.insert(
+            command.0.to_string(),
+            CommandInfo::BuiltIn {
+                about: Some(command.2.to_string()),
+            },
+        );
+    }
+
+    // Add the user-defined aliases
+    let alias_commands = user_defined_aliases(gctx);
+    commands.extend(alias_commands);
+
+    // `help` is special, so it needs to be inserted separately.
+    commands.insert(
+        "help".to_string(),
+        CommandInfo::BuiltIn {
+            about: Some("Displays help for a cargo subcommand".to_string()),
+        },
+    );
+
+    commands
+}
+
+fn third_party_subcommands(gctx: &GlobalContext) -> BTreeMap<String, CommandInfo> {
     let prefix = "cargo-";
     let suffix = env::consts::EXE_SUFFIX;
     let mut commands = BTreeMap::new();
@@ -209,28 +247,11 @@ fn list_commands(gctx: &GlobalContext) -> BTreeMap<String, CommandInfo> {
             }
         }
     }
+    commands
+}
 
-    for cmd in commands::builtin() {
-        commands.insert(
-            cmd.get_name().to_string(),
-            CommandInfo::BuiltIn {
-                about: cmd.get_about().map(|s| s.to_string()),
-            },
-        );
-    }
-
-    // Add the builtin_aliases and them descriptions to the
-    // `commands` `BTreeMap`.
-    for command in &BUILTIN_ALIASES {
-        commands.insert(
-            command.0.to_string(),
-            CommandInfo::BuiltIn {
-                about: Some(command.2.to_string()),
-            },
-        );
-    }
-
-    // Add the user-defined aliases
+fn user_defined_aliases(gctx: &GlobalContext) -> BTreeMap<String, CommandInfo> {
+    let mut commands = BTreeMap::new();
     if let Ok(aliases) = gctx.get::<BTreeMap<String, StringOrVec>>("alias") {
         for (name, target) in aliases.iter() {
             commands.insert(
@@ -241,15 +262,6 @@ fn list_commands(gctx: &GlobalContext) -> BTreeMap<String, CommandInfo> {
             );
         }
     }
-
-    // `help` is special, so it needs to be inserted separately.
-    commands.insert(
-        "help".to_string(),
-        CommandInfo::BuiltIn {
-            about: Some("Displays help for a cargo subcommand".to_string()),
-        },
-    );
-
     commands
 }
 
