@@ -10,6 +10,7 @@ use crate::util::important_paths::find_root_manifest_for_wd;
 use crate::util::interning::InternedString;
 use crate::util::is_rustup;
 use crate::util::restricted_names;
+use crate::util::toml::is_embedded;
 use crate::util::{
     print_available_benches, print_available_binaries, print_available_examples,
     print_available_packages, print_available_tests,
@@ -325,7 +326,18 @@ pub trait CommandExt: Sized {
         self._arg(
             opt("manifest-path", "Path to Cargo.toml")
                 .value_name("PATH")
-                .help_heading(heading::MANIFEST_OPTIONS),
+                .help_heading(heading::MANIFEST_OPTIONS)
+                .add(clap_complete::engine::ArgValueCompleter::new(
+                    clap_complete::engine::PathCompleter::any().filter(|path: &Path| {
+                        if path.file_name() == Some(OsStr::new("Cargo.toml")) {
+                            return true;
+                        }
+                        if is_embedded(path) {
+                            return true;
+                        }
+                        false
+                    }),
+                )),
         )
     }
 
@@ -333,7 +345,18 @@ pub trait CommandExt: Sized {
         self._arg(
             opt("lockfile-path", "Path to Cargo.lock (unstable)")
                 .value_name("PATH")
-                .help_heading(heading::MANIFEST_OPTIONS),
+                .help_heading(heading::MANIFEST_OPTIONS)
+                .add(clap_complete::engine::ArgValueCompleter::new(
+                    clap_complete::engine::PathCompleter::any().filter(|path: &Path| {
+                        let file_name = match path.file_name() {
+                            Some(name) => name,
+                            None => return false,
+                        };
+
+                        // allow `Cargo.lock` file
+                        file_name == OsStr::new("Cargo.lock")
+                    }),
+                )),
         )
     }
 

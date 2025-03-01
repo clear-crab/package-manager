@@ -25,7 +25,6 @@ anyhow = "1.0.95"
 base64 = "0.22.1"
 blake3 = "1.5.5"
 build-rs = { version = "0.3.0", path = "crates/build-rs" }
-bytesize = "1.3"
 cargo = { path = "" }
 cargo-credential = { version = "0.4.2", path = "credential/cargo-credential" }
 cargo-credential-libsecret = { version = "0.4.13", path = "credential/cargo-credential-libsecret" }
@@ -69,8 +68,8 @@ libloading = "0.8.6"
 memchr = "2.7.4"
 miow = "0.6.0"
 opener = "0.7.2"
-openssl = "=0.10.57" # See rust-lang/cargo#13546 and openssl/openssl#23376 for pinning
-openssl-sys = "=0.9.92" # See rust-lang/cargo#13546 and openssl/openssl#23376 for pinning
+openssl = "0.10.57"
+openssl-sys = "0.9.92"
 os_info = { version = "3.10.0", default-features = false }
 pasetors = { version = "0.7.2", features = ["v3", "paserk", "std", "serde"] }
 pathdiff = "0.2.3"
@@ -157,7 +156,6 @@ anstyle.workspace = true
 anyhow.workspace = true
 base64.workspace = true
 blake3.workspace = true
-bytesize.workspace = true
 cargo-credential.workspace = true
 cargo-platform.workspace = true
 cargo-util-schemas.workspace = true

@@ -421,11 +421,8 @@ impl GlobalContext {
 
     /// Gets the path to the `rustc` executable.
     pub fn load_global_rustc(&self, ws: Option<&Workspace<'_>>) -> CargoResult<Rustc> {
-        let cache_location = ws.map(|ws| {
-            ws.target_dir()
-                .join(".rustc_info.json")
-                .into_path_unlocked()
-        });
+        let cache_location =
+            ws.map(|ws| ws.build_dir().join(".rustc_info.json").into_path_unlocked());
         let wrapper = self.maybe_get_tool("rustc_wrapper", &self.build_config()?.rustc_wrapper);
         let rustc_workspace_wrapper = self.maybe_get_tool(
             "rustc_workspace_wrapper",
@@ -493,9 +490,25 @@ impl GlobalContext {
                     paths::resolve_executable(&argv0)
                 }
 
+                // Determines whether `path` is a cargo binary.
+                // See: https://github.com/rust-lang/cargo/issues/15099#issuecomment-2666737150
+                fn is_cargo(path: &Path) -> bool {
+                    path.file_stem() == Some(OsStr::new("cargo"))
+                }
+
+                let from_current_exe = from_current_exe();
+                if from_current_exe.as_deref().is_ok_and(is_cargo) {
+                    return from_current_exe;
+                }
+
+                let from_argv = from_argv();
+                if from_argv.as_deref().is_ok_and(is_cargo) {
+                    return from_argv;
+                }
+
                 let exe = from_env()
-                    .or_else(|_| from_current_exe())
-                    .or_else(|_| from_argv())
+                    .or(from_current_exe)
+                    .or(from_argv)
                     .context("couldn't get the path to cargo executable")?;
                 Ok(exe)
             })
@@ -603,7 +616,7 @@ impl GlobalContext {
     ///
     /// Returns `None` if the user has not chosen an explicit directory.
     ///
-    /// Callers should prefer `Workspace::target_dir` instead.
+    /// Callers should prefer [`Workspace::target_dir`] instead.
     pub fn target_dir(&self) -> CargoResult<Option<Filesystem>> {
         if let Some(dir) = &self.target_dir {
             Ok(Some(dir.clone()))
@@ -631,6 +644,34 @@ impl GlobalContext {
             Ok(Some(Filesystem::new(path)))
         } else {
             Ok(None)
+        }
+    }
+
+    /// The directory to use for intermediate build artifacts.
+    ///
+    /// Falls back to the target directory if not specified.
+    ///
+    /// Callers should prefer [`Workspace::build_dir`] instead.
+    pub fn build_dir(&self) -> CargoResult<Option<Filesystem>> {
+        if !self.cli_unstable().build_dir {
+            return self.target_dir();
+        }
+        if let Some(val) = &self.build_config()?.build_dir {
+            let path = val.resolve_path(self);
+
+            // Check if the target directory is set to an empty string in the config.toml file.
+            if val.raw_value().is_empty() {
+                bail!(
+                    "the build directory is set to an empty string in {}",
+                    val.value().definition
+                )
+            }
+
+            Ok(Some(Filesystem::new(path)))
+        } else {
+            // For now, fallback to the previous implementation.
+            // This will change in the future.
+            return self.target_dir();
         }
     }
 
@@ -2653,6 +2694,7 @@ pub struct CargoBuildConfig {
     pub pipelining: Option<bool>,
     pub dep_info_basedir: Option<ConfigRelativePath>,
     pub target_dir: Option<ConfigRelativePath>,
+    pub build_dir: Option<ConfigRelativePath>,
     pub incremental: Option<bool>,
     pub target: Option<BuildTargetConfig>,
     pub jobs: Option<JobsConfig>,
@@ -2666,6 +2708,8 @@ pub struct CargoBuildConfig {
     pub out_dir: Option<ConfigRelativePath>,
     pub artifact_dir: Option<ConfigRelativePath>,
     pub warnings: Option<WarningHandling>,
+    /// Unstable feature `-Zsbom`.
+    pub sbom: Option<bool>,
 }
 
 /// Whether warnings should warn, be allowed, or cause an error.

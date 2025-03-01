@@ -3424,7 +3424,7 @@ fn verify_packaged_status_line(
     uncompressed_size: u64,
     compressed_size: u64,
 ) {
-    use cargo::util::human_readable_bytes;
+    use cargo::util::HumanBytes;
 
     let stderr = String::from_utf8(output.stderr).unwrap();
     let mut packaged_lines = stderr
@@ -3438,12 +3438,9 @@ fn verify_packaged_status_line(
         "Only one `Packaged` status line should appear in stderr"
     );
     let size_info = packaged_line.trim().trim_start_matches("Packaged").trim();
-    let uncompressed = human_readable_bytes(uncompressed_size);
-    let compressed = human_readable_bytes(compressed_size);
-    let expected = format!(
-        "{} files, {:.1}{} ({:.1}{} compressed)",
-        num_files, uncompressed.0, uncompressed.1, compressed.0, compressed.1
-    );
+    let uncompressed = HumanBytes(uncompressed_size);
+    let compressed = HumanBytes(compressed_size);
+    let expected = format!("{num_files} files, {uncompressed:.1} ({compressed:.1} compressed)");
     assert_eq!(size_info, expected);
 }
 
@@ -6485,6 +6482,182 @@ fn workspace_with_capitalized_member() {
 [PACKAGED] 4 files, [FILE_SIZE]B ([FILE_SIZE]B compressed)
 [PACKAGING] DEP v0.1.0 ([ROOT]/foo/dep)
 [PACKAGED] 4 files, [FILE_SIZE]B ([FILE_SIZE]B compressed)
+
+"#]]
+            .unordered(),
+        )
+        .run();
+}
+
+#[cargo_test]
+fn workspace_with_renamed_member() {
+    let reg = registry::init();
+
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+            [workspace]
+            members = ["crates/*"]
+            "#,
+        )
+        .file(
+            "crates/val-json/Cargo.toml",
+            r#"
+            [package]
+            name = "obeli-sk-val-json"
+            version = "0.16.2"
+            edition = "2015"
+            authors = []
+            license = "MIT"
+            description = "main"
+            repository = "bar"
+
+            [dependencies]
+        "#,
+        )
+        .file("crates/val-json/src/lib.rs", "pub fn foo() {}")
+        .file(
+            "crates/concepts/Cargo.toml",
+            r#"
+            [package]
+            name = "obeli-sk-concepts"
+            version = "0.16.2"
+            edition = "2015"
+            authors = []
+            license = "MIT"
+            description = "main"
+            repository = "bar"
+
+            [dependencies]
+            val-json = { package = "obeli-sk-val-json", path = "../val-json", version = "0.16.2" }
+        "#,
+        )
+        .file(
+            "crates/concepts/src/lib.rs",
+            "pub fn foo() { val_json::foo() }",
+        )
+        .file(
+            "crates/utils/Cargo.toml",
+            r#"
+            [package]
+            name = "obeli-sk-utils"
+            version = "0.16.2"
+            edition = "2015"
+            authors = []
+            license = "MIT"
+            description = "main"
+            repository = "bar"
+
+            [dependencies]
+            concepts = { package = "obeli-sk-concepts", path = "../concepts", version = "0.16.2" }
+            val-json = { package = "obeli-sk-val-json", path = "../val-json", version = "0.16.2" }
+        "#,
+        )
+        .file(
+            "crates/utils/src/lib.rs",
+            "pub fn foo() { val_json::foo(); concepts::foo(); }",
+        )
+        .build();
+
+    p.cargo("package -Zpackage-workspace")
+        .masquerade_as_nightly_cargo(&["package-workspace"])
+        .replace_crates_io(reg.index_url())
+        .with_stderr_data(
+            str![[r#"
+[UPDATING] crates.io index
+[PACKAGED] 4 files, [FILE_SIZE]B ([FILE_SIZE]B compressed)
+[PACKAGED] 4 files, [FILE_SIZE]B ([FILE_SIZE]B compressed)
+[PACKAGING] obeli-sk-val-json v0.16.2 ([ROOT]/foo/crates/val-json)
+[PACKAGING] obeli-sk-concepts v0.16.2 ([ROOT]/foo/crates/concepts)
+[PACKAGING] obeli-sk-utils v0.16.2 ([ROOT]/foo/crates/utils)
+[PACKAGED] 4 files, [FILE_SIZE]B ([FILE_SIZE]B compressed)
+[VERIFYING] obeli-sk-val-json v0.16.2 ([ROOT]/foo/crates/val-json)
+[COMPILING] obeli-sk-val-json v0.16.2 ([ROOT]/foo/target/package/obeli-sk-val-json-0.16.2)
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [ELAPSED]s
+[VERIFYING] obeli-sk-concepts v0.16.2 ([ROOT]/foo/crates/concepts)
+[UNPACKING] obeli-sk-val-json v0.16.2 (registry `[ROOT]/foo/target/package/tmp-registry`)
+[COMPILING] obeli-sk-val-json v0.16.2
+[COMPILING] obeli-sk-concepts v0.16.2 ([ROOT]/foo/target/package/obeli-sk-concepts-0.16.2)
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [ELAPSED]s
+[VERIFYING] obeli-sk-utils v0.16.2 ([ROOT]/foo/crates/utils)
+[UNPACKING] obeli-sk-concepts v0.16.2 (registry `[ROOT]/foo/target/package/tmp-registry`)
+[COMPILING] obeli-sk-val-json v0.16.2
+[COMPILING] obeli-sk-concepts v0.16.2
+[COMPILING] obeli-sk-utils v0.16.2 ([ROOT]/foo/target/package/obeli-sk-utils-0.16.2)
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [ELAPSED]s
+
+"#]]
+            .unordered(),
+        )
+        .run();
+}
+
+#[cargo_test]
+fn workspace_with_dot_rs_dir() {
+    let reg = registry::init();
+
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+            [workspace]
+            members = ["crates/*"]
+            "#,
+        )
+        .file(
+            "crates/foo.rs/Cargo.toml",
+            r#"
+            [package]
+            name = "foo"
+            version = "0.16.2"
+            edition = "2015"
+            authors = []
+            license = "MIT"
+            description = "main"
+            repository = "bar"
+
+            [dependencies]
+        "#,
+        )
+        .file("crates/foo.rs/src/lib.rs", "pub fn foo() {}")
+        .file(
+            "crates/bar.rs/Cargo.toml",
+            r#"
+            [package]
+            name = "bar"
+            version = "0.16.2"
+            edition = "2015"
+            authors = []
+            license = "MIT"
+            description = "main"
+            repository = "bar"
+
+            [dependencies]
+            foo = { path = "../foo.rs", version = "0.16.2" }
+        "#,
+        )
+        .file("crates/bar.rs/src/lib.rs", "pub fn foo() {}")
+        .build();
+
+    p.cargo("package -Zpackage-workspace")
+        .masquerade_as_nightly_cargo(&["package-workspace"])
+        .replace_crates_io(reg.index_url())
+        .with_stderr_data(
+            str![[r#"
+[PACKAGING] foo v0.16.2 ([ROOT]/foo/crates/foo.rs)
+[PACKAGED] 4 files, [FILE_SIZE]B ([FILE_SIZE]B compressed)
+[PACKAGING] bar v0.16.2 ([ROOT]/foo/crates/bar.rs)
+[UPDATING] crates.io index
+[PACKAGED] 4 files, [FILE_SIZE]B ([FILE_SIZE]B compressed)
+[VERIFYING] foo v0.16.2 ([ROOT]/foo/crates/foo.rs)
+[COMPILING] foo v0.16.2 ([ROOT]/foo/target/package/foo-0.16.2)
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [ELAPSED]s
+[VERIFYING] bar v0.16.2 ([ROOT]/foo/crates/bar.rs)
+[UNPACKING] foo v0.16.2 (registry `[ROOT]/foo/target/package/tmp-registry`)
+[COMPILING] foo v0.16.2
+[COMPILING] bar v0.16.2 ([ROOT]/foo/target/package/bar-0.16.2)
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [ELAPSED]s
 
 "#]]
             .unordered(),

@@ -22,13 +22,13 @@ use crate::sources::{PathSource, CRATES_IO_REGISTRY};
 use crate::util::cache_lock::CacheLockMode;
 use crate::util::context::JobsConfig;
 use crate::util::errors::CargoResult;
-use crate::util::human_readable_bytes;
 use crate::util::restricted_names;
 use crate::util::toml::prepare_for_publish;
 use crate::util::FileLock;
 use crate::util::Filesystem;
 use crate::util::GlobalContext;
 use crate::util::Graph;
+use crate::util::HumanBytes;
 use crate::{drop_println, ops};
 use anyhow::{bail, Context as _};
 use cargo_util::paths;
@@ -129,13 +129,10 @@ fn create_package(
         .with_context(|| format!("could not learn metadata for: `{}`", dst_path.display()))?;
     let compressed_size = dst_metadata.len();
 
-    let uncompressed = human_readable_bytes(uncompressed_size);
-    let compressed = human_readable_bytes(compressed_size);
+    let uncompressed = HumanBytes(uncompressed_size);
+    let compressed = HumanBytes(compressed_size);
 
-    let message = format!(
-        "{} files, {:.1}{} ({:.1}{} compressed)",
-        filecount, uncompressed.0, uncompressed.1, compressed.0, compressed.1,
-    );
+    let message = format!("{filecount} files, {uncompressed:.1} ({compressed:.1} compressed)");
     // It doesn't really matter if this fails.
     drop(gctx.shell().status("Packaged", message));
 
@@ -217,7 +214,7 @@ fn do_package<'a>(
     };
 
     let mut local_reg = if ws.gctx().cli_unstable().package_workspace {
-        let reg_dir = ws.target_dir().join("package").join("tmp-registry");
+        let reg_dir = ws.build_dir().join("package").join("tmp-registry");
         sid.map(|sid| TmpRegistry::new(ws.gctx(), reg_dir, sid))
             .transpose()?
     } else {
@@ -1032,22 +1029,33 @@ impl<'a> TmpRegistry<'a> {
         let deps: Vec<_> = new_crate
             .deps
             .into_iter()
-            .map(|dep| RegistryDependency {
-                name: dep.name.into(),
-                req: dep.version_req.into(),
-                features: dep.features.into_iter().map(|x| x.into()).collect(),
-                optional: dep.optional,
-                default_features: dep.default_features,
-                target: dep.target.map(|x| x.into()),
-                kind: Some(dep.kind.into()),
-                registry: dep.registry.map(|x| x.into()),
-                package: None,
-                public: None,
-                artifact: dep
-                    .artifact
-                    .map(|xs| xs.into_iter().map(|x| x.into()).collect()),
-                bindep_target: dep.bindep_target.map(|x| x.into()),
-                lib: dep.lib,
+            .map(|dep| {
+                let name = dep
+                    .explicit_name_in_toml
+                    .clone()
+                    .unwrap_or_else(|| dep.name.clone())
+                    .into();
+                let package = dep
+                    .explicit_name_in_toml
+                    .as_ref()
+                    .map(|_| dep.name.clone().into());
+                RegistryDependency {
+                    name: name,
+                    req: dep.version_req.into(),
+                    features: dep.features.into_iter().map(|x| x.into()).collect(),
+                    optional: dep.optional,
+                    default_features: dep.default_features,
+                    target: dep.target.map(|x| x.into()),
+                    kind: Some(dep.kind.into()),
+                    registry: dep.registry.map(|x| x.into()),
+                    package: package,
+                    public: None,
+                    artifact: dep
+                        .artifact
+                        .map(|xs| xs.into_iter().map(|x| x.into()).collect()),
+                    bindep_target: dep.bindep_target.map(|x| x.into()),
+                    lib: dep.lib,
+                }
             })
             .collect();
 

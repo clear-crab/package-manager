@@ -16,7 +16,7 @@ use std::str::FromStr;
 mod format;
 mod graph;
 
-pub use {graph::EdgeKind, graph::Node};
+pub use {graph::EdgeKind, graph::Node, graph::NodeId};
 
 pub struct TreeOptions {
     pub cli_features: CliFeatures,
@@ -240,7 +240,7 @@ pub fn build_and_print(ws: &Workspace<'_>, opts: &TreeOptions) -> CargoResult<()
 fn print(
     ws: &Workspace<'_>,
     opts: &TreeOptions,
-    roots: Vec<usize>,
+    roots: Vec<NodeId>,
     pkgs_to_prune: &[PackageIdSpec],
     graph: &Graph<'_>,
 ) -> CargoResult<()> {
@@ -292,16 +292,16 @@ fn print(
 fn print_node<'a>(
     ws: &Workspace<'_>,
     graph: &'a Graph<'_>,
-    node_index: usize,
+    node_index: NodeId,
     format: &Pattern,
     symbols: &Symbols,
     pkgs_to_prune: &[PackageIdSpec],
     prefix: Prefix,
     no_dedupe: bool,
     display_depth: DisplayDepth,
-    visited_deps: &mut HashSet<usize>,
+    visited_deps: &mut HashSet<NodeId>,
     levels_continue: &mut Vec<bool>,
-    print_stack: &mut Vec<usize>,
+    print_stack: &mut Vec<NodeId>,
 ) {
     let new = no_dedupe || visited_deps.insert(node_index);
 
@@ -371,19 +371,19 @@ fn print_node<'a>(
 fn print_dependencies<'a>(
     ws: &Workspace<'_>,
     graph: &'a Graph<'_>,
-    node_index: usize,
+    node_index: NodeId,
     format: &Pattern,
     symbols: &Symbols,
     pkgs_to_prune: &[PackageIdSpec],
     prefix: Prefix,
     no_dedupe: bool,
     display_depth: DisplayDepth,
-    visited_deps: &mut HashSet<usize>,
+    visited_deps: &mut HashSet<NodeId>,
     levels_continue: &mut Vec<bool>,
-    print_stack: &mut Vec<usize>,
+    print_stack: &mut Vec<NodeId>,
     kind: &EdgeKind,
 ) {
-    let deps = graph.connected_nodes(node_index, kind);
+    let deps = graph.edges_of_kind(node_index, kind);
     if deps.is_empty() {
         return;
     }
@@ -420,7 +420,7 @@ fn print_dependencies<'a>(
         .iter()
         .filter(|dep| {
             // Filter out packages to prune.
-            match graph.node(**dep) {
+            match graph.node(dep.node()) {
                 Node::Package { package_id, .. } => {
                     if filter_non_workspace_member && !ws.is_member_id(*package_id) {
                         return false;
@@ -437,7 +437,7 @@ fn print_dependencies<'a>(
         print_node(
             ws,
             graph,
-            *dependency,
+            dependency.node(),
             format,
             symbols,
             pkgs_to_prune,
