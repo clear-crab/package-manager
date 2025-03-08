@@ -76,7 +76,7 @@ pub use self::build_context::{
 use self::build_plan::BuildPlan;
 pub use self::build_runner::{BuildRunner, Metadata, UnitHash};
 pub use self::compilation::{Compilation, Doctest, UnitOutput};
-pub use self::compile_kind::{CompileKind, CompileTarget};
+pub use self::compile_kind::{CompileKind, CompileKindFallback, CompileTarget};
 pub use self::crate_type::CrateType;
 pub use self::custom_build::LinkArgTarget;
 pub use self::custom_build::{BuildOutput, BuildScriptOutputs, BuildScripts};
@@ -449,7 +449,7 @@ fn rustc(
 
             if let Err(e) = result {
                 if let Some(diagnostic) = failed_scrape_diagnostic {
-                    state.warning(diagnostic)?;
+                    state.warning(diagnostic);
                 }
 
                 return Err(e);
@@ -920,7 +920,7 @@ fn rustdoc(build_runner: &mut BuildRunner<'_, '_>, unit: &Unit) -> CargoResult<W
 
         if let Err(e) = result {
             if let Some(diagnostic) = failed_scrape_diagnostic {
-                state.warning(diagnostic)?;
+                state.warning(diagnostic);
             }
 
             return Err(e);
