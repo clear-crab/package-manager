@@ -67,7 +67,7 @@ use std::sync::Arc;
 
 use anyhow::{Context as _, Error};
 use lazycell::LazyCell;
-use tracing::{debug, trace};
+use tracing::{debug, instrument, trace};
 
 pub use self::build_config::{BuildConfig, CompileMode, MessageFormat, TimingOutput};
 pub use self::build_context::{
@@ -140,10 +140,11 @@ pub trait Executor: Send + Sync + 'static {
 pub struct DefaultExecutor;
 
 impl Executor for DefaultExecutor {
+    #[instrument(name = "rustc", skip_all, fields(package = id.name().as_str(), process = cmd.to_string()))]
     fn exec(
         &self,
         cmd: &ProcessBuilder,
-        _id: PackageId,
+        id: PackageId,
         _target: &Target,
         _mode: CompileMode,
         on_stdout_line: &mut dyn FnMut(&str) -> CargoResult<()>,
@@ -1487,7 +1488,7 @@ fn check_cfg_args(unit: &Unit) -> Vec<OsString> {
     arg_feature.push("))");
 
     // In addition to the package features, we also include the `test` cfg (since
-    // compiler-team#785, as to be able to someday apply yt conditionaly), as well
+    // compiler-team#785, as to be able to someday apply yt conditionally), as well
     // the `docsrs` cfg from the docs.rs service.
     //
     // We include `docsrs` here (in Cargo) instead of rustc, since there is a much closer
