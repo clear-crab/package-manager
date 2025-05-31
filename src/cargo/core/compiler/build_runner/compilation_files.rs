@@ -448,8 +448,8 @@ impl<'a, 'gctx: 'a> CompilationFiles<'a, 'gctx> {
         bcx: &BuildContext<'a, 'gctx>,
     ) -> CargoResult<Arc<Vec<OutputFile>>> {
         let ret = match unit.mode {
-            CompileMode::Doc { json, .. } => {
-                let path = if json {
+            CompileMode::Doc => {
+                let path = if bcx.build_config.intent.wants_doc_json_output() {
                     self.out_dir(unit)
                         .join(format!("{}.json", unit.target.crate_name()))
                 } else {
@@ -493,10 +493,7 @@ impl<'a, 'gctx: 'a> CompilationFiles<'a, 'gctx> {
                     flavor: FileFlavor::Normal,
                 }]
             }
-            CompileMode::Test
-            | CompileMode::Build
-            | CompileMode::Bench
-            | CompileMode::Check { .. } => {
+            CompileMode::Test | CompileMode::Build | CompileMode::Check { .. } => {
                 let mut outputs = self.calc_outputs_rustc(unit, bcx)?;
                 if bcx.build_config.sbom && bcx.gctx.cli_unstable().sbom {
                     let sbom_files: Vec<_> = outputs
