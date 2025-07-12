@@ -3,7 +3,7 @@
 use crate::prelude::*;
 use cargo_test_support::git::cargo_uses_gitoxide;
 use cargo_test_support::registry::{self, Package};
-use cargo_test_support::{basic_bin_manifest, basic_manifest, project, rustc_host, str, Project};
+use cargo_test_support::{Project, basic_bin_manifest, basic_manifest, project, rustc_host, str};
 
 #[cargo_test]
 fn bad1() {
@@ -172,7 +172,7 @@ Caused by:
     |
   1 | 4
     |  ^
-  expected `.`, `=`
+  key with no value, expected `=`
 
 "#]])
         .run();
@@ -454,8 +454,7 @@ fn malformed_override() {
     p.cargo("check")
         .with_status(101)
         .with_stderr_data(str![[r#"
-[ERROR] invalid inline table
-expected `}`
+[ERROR] newlines are unsupported in inline tables, expected nothing
  --> Cargo.toml:9:27
   |
 9 |                 native = {
@@ -2130,8 +2129,7 @@ Caused by:
     |
   1 | [bar] baz = 2
     |       ^
-  invalid table header
-  expected newline, `#`
+  unexpected key or value, expected newline, `#`
 
 "#]])
         .run();

@@ -1120,11 +1120,11 @@ Caused by:
   invalid TOML found for metadata
 
 Caused by:
-  TOML parse error at line 1, column 1
+  TOML parse error at line 1, column 4
     |
   1 | v1]
-    | ^
-  invalid key
+    |    ^
+  key with no value, expected `=`
 
 "#]])
         .run();
@@ -1956,15 +1956,19 @@ fn git_repo_replace() {
     path.push(".cargo/.crates.toml");
 
     assert_ne!(old_rev, new_rev);
-    assert!(fs::read_to_string(path.clone())
-        .unwrap()
-        .contains(&format!("{}", old_rev)));
+    assert!(
+        fs::read_to_string(path.clone())
+            .unwrap()
+            .contains(&format!("{}", old_rev))
+    );
     cargo_process("install --force --git")
         .arg(p.url().to_string())
         .run();
-    assert!(fs::read_to_string(path)
-        .unwrap()
-        .contains(&format!("{}", new_rev)));
+    assert!(
+        fs::read_to_string(path)
+            .unwrap()
+            .contains(&format!("{}", new_rev))
+    );
 }
 
 #[cargo_test]

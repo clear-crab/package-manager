@@ -8,13 +8,13 @@ use std::os;
 use std::path::{Path, PathBuf};
 
 use crate::prelude::*;
+use cargo::CargoResult;
 use cargo::core::features::{GitFeatures, GitoxideFeatures};
 use cargo::core::{PackageIdSpec, Shell};
 use cargo::util::auth::RegistryConfig;
 use cargo::util::context::{
     self, Definition, GlobalContext, JobsConfig, SslVersionConfig, StringList,
 };
-use cargo::CargoResult;
 use cargo_test_support::compare::assert_e2e;
 use cargo_test_support::str;
 use cargo_test_support::{paths, project, project_in_home, symlink_supported, t};
@@ -859,7 +859,7 @@ Caused by:
   |
 1 | asdf
   |     ^
-expected `.`, `=`
+key with no value, expected `=`
 
 "#]],
     );
@@ -931,9 +931,8 @@ expected a list, but found a integer for `l3` in [ROOT]/.cargo/config.toml
 error in environment variable `CARGO_BAD_ENV`: could not parse TOML list: TOML parse error at line 1, column 2
   |
 1 | [zzz]
-  |  ^
-invalid array
-expected `]`
+  |  ^^^
+string values must be quoted, expected literal string
 
 "#]],
     );
@@ -1141,10 +1140,11 @@ hello = 'world'
 
     let gctx = new_gctx();
 
-    assert!(gctx
-        .get::<Option<SslVersionConfig>>("http.ssl-version")
-        .unwrap()
-        .is_none());
+    assert!(
+        gctx.get::<Option<SslVersionConfig>>("http.ssl-version")
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[cargo_test]
@@ -1220,8 +1220,8 @@ Caused by:
   TOML parse error at line 3, column 1
   |
 3 | ssl-version.min = 'tlsv1.2'
-  | ^
-dotted key `ssl-version` attempted to extend non-table type (string)
+  | ^^^^^^^^^^^
+cannot extend value of type string with a dotted key
 
 "#]],
     );
@@ -1802,9 +1802,10 @@ fn debuginfo_parsing() {
             .config_arg(format!("profile.dev.debug={err_val}"))
             .build();
         let err = gctx.get::<TomlDebugInfo>("profile.dev.debug").unwrap_err();
-        assert!(err
-            .to_string()
-            .ends_with("could not load config key `profile.dev.debug`"));
+        assert!(
+            err.to_string()
+                .ends_with("could not load config key `profile.dev.debug`")
+        );
     }
 }
 
@@ -1818,10 +1819,11 @@ fn build_jobs_missing() {
 
     let gctx = new_gctx();
 
-    assert!(gctx
-        .get::<Option<JobsConfig>>("build.jobs")
-        .unwrap()
-        .is_none());
+    assert!(
+        gctx.get::<Option<JobsConfig>>("build.jobs")
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[cargo_test]

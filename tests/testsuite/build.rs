@@ -9,18 +9,18 @@ use crate::prelude::*;
 use crate::utils::cargo_exe;
 use crate::utils::cargo_process;
 use crate::utils::tools;
-use cargo::core::compiler::UserIntent;
+use cargo::GlobalContext;
 use cargo::core::Shell;
 use cargo::core::Workspace;
+use cargo::core::compiler::UserIntent;
 use cargo::ops::CompileOptions;
-use cargo::GlobalContext;
 use cargo_test_support::compare::assert_e2e;
 use cargo_test_support::paths::root;
 use cargo_test_support::registry::Package;
 use cargo_test_support::str;
 use cargo_test_support::{
-    basic_bin_manifest, basic_lib_manifest, basic_manifest, git, is_nightly, main_file, paths,
-    process, project, rustc_host, sleep_ms, symlink_supported, t, Execs, ProjectBuilder,
+    Execs, ProjectBuilder, basic_bin_manifest, basic_lib_manifest, basic_manifest, git, is_nightly,
+    main_file, paths, process, project, rustc_host, sleep_ms, symlink_supported, t,
 };
 use cargo_util::paths::dylib_path_envvar;
 
@@ -377,11 +377,11 @@ Caused by:
   could not parse TOML configuration in `[ROOT]/foo/.cargo/config.toml`
 
 Caused by:
-  TOML parse error at line 1, column 1
+  TOML parse error at line 1, column 2
     |
   1 | !
-    | ^
-  invalid key
+    |  ^
+  key with no value, expected `=`
 
 "#]])
         .run();
@@ -418,12 +418,11 @@ fn cargo_compile_with_invalid_manifest2() {
     p.cargo("build")
         .with_status(101)
         .with_stderr_data(str![[r#"
-[ERROR] invalid string
-expected `"`, `'`
+[ERROR] string values must be quoted, expected literal string
  --> Cargo.toml:3:23
   |
 3 |                 foo = bar
-  |                       ^
+  |                       ^^^
   |
 
 "#]])
@@ -437,12 +436,11 @@ fn cargo_compile_with_invalid_manifest3() {
     p.cargo("build --manifest-path src/Cargo.toml")
         .with_status(101)
         .with_stderr_data(str![[r#"
-[ERROR] invalid string
-expected `"`, `'`
+[ERROR] string values must be quoted, expected literal string
  --> src/Cargo.toml:1:5
   |
 1 | a = bar
-  |     ^
+  |     ^^^
   |
 
 "#]])
@@ -672,20 +670,24 @@ fn cargo_compile_api_exposes_artifact_paths() {
 
     assert_eq!(1, result.binaries.len());
     assert!(result.binaries[0].path.exists());
-    assert!(result.binaries[0]
-        .path
-        .to_str()
-        .unwrap()
-        .contains("the_foo_bin"));
+    assert!(
+        result.binaries[0]
+            .path
+            .to_str()
+            .unwrap()
+            .contains("the_foo_bin")
+    );
 
     assert_eq!(1, result.cdylibs.len());
     // The exact library path varies by platform, but should certainly exist at least
     assert!(result.cdylibs[0].path.exists());
-    assert!(result.cdylibs[0]
-        .path
-        .to_str()
-        .unwrap()
-        .contains("the_foo_lib"));
+    assert!(
+        result.cdylibs[0]
+            .path
+            .to_str()
+            .unwrap()
+            .contains("the_foo_lib")
+    );
 }
 
 #[cargo_test]
@@ -2736,7 +2738,7 @@ Caused by:
     |
   1 | this is not valid toml
     |      ^
-  expected `.`, `=`
+  key with no value, expected `=`
 
 "#]])
         .run();
@@ -3343,11 +3345,12 @@ fn custom_target_dir_line_parameter() {
     p.cargo("build --target-dir foobar/target")
         .env("CARGO_TARGET_DIR", "bar/target")
         .run();
-    assert!(p
-        .root()
-        .join("foobar/target/debug")
-        .join(&exe_name)
-        .is_file());
+    assert!(
+        p.root()
+            .join("foobar/target/debug")
+            .join(&exe_name)
+            .is_file()
+    );
     assert!(p.root().join("bar/target/debug").join(&exe_name).is_file());
     assert!(p.root().join("foo/target/debug").join(&exe_name).is_file());
     assert!(p.root().join("target/debug").join(&exe_name).is_file());
@@ -6153,9 +6156,11 @@ fn target_directory_backup_exclusion() {
     p.cargo("build").run();
     let cachedir_tag = p.build_dir().join("CACHEDIR.TAG");
     assert!(cachedir_tag.is_file());
-    assert!(fs::read_to_string(&cachedir_tag)
-        .unwrap()
-        .starts_with("Signature: 8a477f597d28d172789f06886806bc55"));
+    assert!(
+        fs::read_to_string(&cachedir_tag)
+            .unwrap()
+            .starts_with("Signature: 8a477f597d28d172789f06886806bc55")
+    );
     // ...but if target/ already exists CACHEDIR.TAG should not be created in it.
     fs::remove_file(&cachedir_tag).unwrap();
     p.cargo("build").run();
