@@ -80,7 +80,6 @@ Each new feature described below should explain how to use it.
     * [feature-unification](#feature-unification) --- Enable new feature unification modes in workspaces
 * Output behavior
     * [artifact-dir](#artifact-dir) --- Adds a directory where artifacts are copied to.
-    * [build-dir](#build-dir) --- Adds a directory where intermediate build artifacts are stored.
     * [Different binary name](#different-binary-name) --- Assign a name to the built binary that is separate from the crate name.
     * [root-dir](#root-dir) --- Controls the root directory relative to which paths are printed
 * Compile behavior
@@ -114,6 +113,7 @@ Each new feature described below should explain how to use it.
     * [Build-plan](#build-plan) --- Emits JSON information on which commands will be run.
     * [unit-graph](#unit-graph) --- Emits JSON for Cargo's internal graph structure.
     * [`cargo rustc --print`](#rustc---print) --- Calls rustc with `--print` to display information from rustc.
+    * [Build analysis](#build-analysis) --- Record and persist detailed build metrics across runs, with new commands to query past builds.
 * Configuration
     * [config-include](#config-include) --- Adds the ability for config files to include other files.
     * [`cargo config`](#cargo-config) --- Adds a new subcommand for viewing config files.
@@ -129,6 +129,7 @@ Each new feature described below should explain how to use it.
     * [warnings](#warnings) --- controls warning behavior; options for allowing or denying warnings.
     * [Package message format](#package-message-format) --- Message format for `cargo package`.
     * [`fix-edition`](#fix-edition) --- A permanently unstable edition migration helper.
+    * [Plumbing subcommands](https://github.com/crate-ci/cargo-plumbing) --- Low, level commands that act as APIs for Cargo, like `cargo metadata`
 
 ## allow-features
 
@@ -245,34 +246,6 @@ This can also be specified in `.cargo/config.toml` files.
 [build]
 artifact-dir = "out"
 ```
-
-## build-dir
-* Original Issue: [#14125](https://github.com/rust-lang/cargo/issues/14125)
-* Tracking Issue: [#14125](https://github.com/rust-lang/cargo/issues/14125)
-
-The directory where intermediate build artifacts will be stored.
-Intermediate artifacts are produced by Rustc/Cargo during the build process.
-
-```toml
-[build]
-build-dir = "out"
-```
-
-### `build.build-dir`
-
-* Type: string (path)
-* Default: Defaults to the value of `build.target-dir`
-* Environment: `CARGO_BUILD_BUILD_DIR`
-
-The path to where internal files used as part of the build are placed.
-
-This option supports path templating.
-
-Available template variables:
-* `{workspace-root}` resolves to root of the current workspace.
-* `{cargo-cache-home}` resolves to `CARGO_HOME`
-* `{workspace-path-hash}` resolves to a hash of the manifest path
-
 
 ## root-dir
 * Original Issue: [#9887](https://github.com/rust-lang/cargo/issues/9887)
@@ -1938,6 +1911,34 @@ For example:
 cargo +nightly fix -Zfix-edition=end=2024,future
 ```
 
+## section-timings
+* Original Pull Request: [#15780](https://github.com/rust-lang/cargo/pull/15780)
+* Tracking Issue: [#15817](https://github.com/rust-lang/cargo/issues/15817)
+
+This feature can be used to extend the output of `cargo build --timings`. It will tell rustc
+to produce timings of individual compilation sections, which will be then displayed in the timings
+HTML/JSON output.
+
+```console
+cargo +nightly -Zsection-timings build --timings
+```
+
+## Build analysis
+
+* Original Issue: [rust-lang/rust-project-goals#332](https://github.com/rust-lang/rust-project-goals/pull/332)
+* Tracking Issue: [#15844](https://github.com/rust-lang/cargo/issues/15844)
+
+The `-Zbuild-analysis` feature records and persists detailed build metrics
+(timings, rebuild reasons, etc.) across runs, with new commands to query past builds.
+
+```toml
+# Example config.toml file.
+
+# Enable the build metric collection
+[build.analysis]
+enabled = true
+```
+
 # Stabilized and removed features
 
 ## Compile progress
@@ -2217,3 +2218,9 @@ Example:
 cargo +nightly build --compile-time-deps -Z unstable-options
 cargo +nightly check --compile-time-deps --all-targets -Z unstable-options
 ```
+
+## build-dir
+
+Support for `build.build-dir` was stabilized in the 1.91 release.
+See the [config documentation](config.md#buildbuild-dir) for information about changing the build-dir
+

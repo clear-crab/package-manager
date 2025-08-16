@@ -650,9 +650,6 @@ impl GlobalContext {
     ///
     /// Callers should prefer [`Workspace::build_dir`] instead.
     pub fn build_dir(&self, workspace_manifest_path: &PathBuf) -> CargoResult<Option<Filesystem>> {
-        if !self.cli_unstable().build_dir {
-            return self.target_dir();
-        }
         if let Some(val) = &self.build_config()?.build_dir {
             let replacements = vec![
                 (
@@ -2771,6 +2768,15 @@ pub struct CargoBuildConfig {
     pub warnings: Option<WarningHandling>,
     /// Unstable feature `-Zsbom`.
     pub sbom: Option<bool>,
+    /// Unstable feature `-Zbuild-analysis`.
+    pub analysis: Option<CargoBuildAnalysis>,
+}
+
+/// Metrics collection for build analysis.
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub struct CargoBuildAnalysis {
+    pub enabled: bool,
 }
 
 /// Whether warnings should warn, be allowed, or cause an error.
