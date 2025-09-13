@@ -418,7 +418,7 @@ impl Shell {
             .unwrap_or(annotate_snippets::renderer::DEFAULT_TERM_WIDTH);
         let rendered = Renderer::styled().term_width(term_width).render(report);
         self.err().write_all(rendered.as_bytes())?;
-        self.err().write_all("\n".as_bytes())?;
+        self.err().write_all(b"\n")?;
         Ok(())
     }
 }
@@ -457,13 +457,11 @@ impl ShellOut {
         style: &Style,
         justified: bool,
     ) -> CargoResult<()> {
-        let bold = anstyle::Style::new() | anstyle::Effects::BOLD;
-
         let mut buffer = Vec::new();
         if justified {
             write!(&mut buffer, "{style}{status:>12}{style:#}")?;
         } else {
-            write!(&mut buffer, "{style}{status}{style:#}{bold}:{bold:#}")?;
+            write!(&mut buffer, "{style}{status}{style:#}:")?;
         }
         match message {
             Some(message) => writeln!(buffer, " {message}")?,
