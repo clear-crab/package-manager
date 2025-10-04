@@ -95,6 +95,7 @@ Each new feature described below should explain how to use it.
     * [target-applies-to-host](#target-applies-to-host) --- Alters whether certain flags will be passed to host build targets.
     * [gc](#gc) --- Global cache garbage collection.
     * [open-namespaces](#open-namespaces) --- Allow multiple packages to participate in the same API namespace
+    * [panic-immediate-abort](#panic-immediate-abort) --- Passes `-Cpanic=immediate-abort` to the compiler.
 * rustdoc
     * [rustdoc-map](#rustdoc-map) --- Provides mappings for documentation to link to external sites like [docs.rs](https://docs.rs/).
     * [scrape-examples](#scrape-examples) --- Shows examples within documentation.
@@ -323,6 +324,10 @@ name = "mypackage"
 version = "0.0.1"
 build = ["foo.rs", "bar.rs"]
 ```
+
+**Accessing Output Directories**:  Output directory of each build script can be accessed by using `<script-name>_OUT_DIR` 
+  where the `<script-name>` is the file-stem of the build script, exactly as-is.
+  For example, `bar_OUT_DIR` for script at `foo/bar.rs`. (Only set during compilation, can be accessed via `env!` macro)
 
 ## public-dependency
 * Tracking Issue: [#44663](https://github.com/rust-lang/rust/issues/44663)
@@ -1496,6 +1501,10 @@ Differences between `cargo run --manifest-path <path>` and `cargo <path>`
 - `cargo <path>` runs with the config for `<path>` and not the current dir, more like `cargo install --path <path>`
 - `cargo <path>` is at a verbosity level below the normal default.  Pass `-v` to get normal output.
 
+When running a package with an embedded manifest,
+[`arg0`](https://doc.rust-lang.org/std/os/unix/process/trait.CommandExt.html#tymethod.arg0) will be the scripts path.
+To get the executable's path, see [`current_exe`](https://doc.rust-lang.org/std/env/fn.current_exe.html).
+
 ### Documentation Updates
 
 ## Profile `trim-paths` option
@@ -1664,6 +1673,24 @@ cargo-features = ["open-namespaces"]
 
 [package]
 # ...
+```
+
+## panic-immediate-abort
+
+* Tracking Issue: [#16042](https://github.com/rust-lang/cargo/issues/16042)
+* Upstream Tracking Issue: [rust-lang/rust#147286](https://github.com/rust-lang/rust/issues/147286)
+
+Allow use of [`-Cpanic=immediate-abort`](../../rustc/codegen-options/index.html#panic) through a Cargo profile
+
+This can be enabled like so:
+```toml
+cargo-features = ["immediate-abort"]
+
+[package]
+# ...
+
+[profile.release]
+panic = "immediate-abort"
 ```
 
 ## `[lints.cargo]`

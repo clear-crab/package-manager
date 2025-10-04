@@ -447,7 +447,7 @@ fn normalize_toml(
             edition,
             &features,
             original_toml.dependencies.as_ref(),
-            None,
+            DepKind::Normal,
             &inherit,
             &workspace_root,
             package_root,
@@ -467,7 +467,7 @@ fn normalize_toml(
             edition,
             &features,
             original_toml.dev_dependencies(),
-            Some(DepKind::Development),
+            DepKind::Development,
             &inherit,
             &workspace_root,
             package_root,
@@ -487,7 +487,7 @@ fn normalize_toml(
             edition,
             &features,
             original_toml.build_dependencies(),
-            Some(DepKind::Build),
+            DepKind::Build,
             &inherit,
             &workspace_root,
             package_root,
@@ -500,7 +500,7 @@ fn normalize_toml(
                 edition,
                 &features,
                 platform.dependencies.as_ref(),
-                None,
+                DepKind::Normal,
                 &inherit,
                 &workspace_root,
                 package_root,
@@ -520,7 +520,7 @@ fn normalize_toml(
                 edition,
                 &features,
                 platform.dev_dependencies(),
-                Some(DepKind::Development),
+                DepKind::Development,
                 &inherit,
                 &workspace_root,
                 package_root,
@@ -540,7 +540,7 @@ fn normalize_toml(
                 edition,
                 &features,
                 platform.build_dependencies(),
-                Some(DepKind::Build),
+                DepKind::Build,
                 &inherit,
                 &workspace_root,
                 package_root,
@@ -873,7 +873,7 @@ fn normalize_dependencies<'a>(
     edition: Edition,
     features: &Features,
     orig_deps: Option<&BTreeMap<manifest::PackageName, manifest::InheritableDependency>>,
-    kind: Option<DepKind>,
+    kind: DepKind,
     inherit: &dyn Fn() -> CargoResult<&'a InheritableFields>,
     workspace_root: &dyn Fn() -> CargoResult<&'a Path>,
     package_root: &Path,
@@ -906,27 +906,27 @@ fn normalize_dependencies<'a>(
             if d.public.is_some() {
                 let with_public_feature = features.require(Feature::public_dependency()).is_ok();
                 let with_z_public = gctx.cli_unstable().public_dependency;
-                if matches!(kind, None) {
-                    if !with_public_feature && !with_z_public {
-                        d.public = None;
-                        warnings.push(format!(
-                            "ignoring `public` on dependency {name_in_toml}, pass `-Zpublic-dependency` to enable support for it"
-                        ))
+                match kind {
+                    DepKind::Normal => {
+                        if !with_public_feature && !with_z_public {
+                            d.public = None;
+                            warnings.push(format!(
+                                "ignoring `public` on dependency {name_in_toml}, pass `-Zpublic-dependency` to enable support for it"
+                            ));
+                        }
                     }
-                } else {
-                    let kind_name = match kind {
-                        Some(k) => k.kind_table(),
-                        None => "dependencies",
-                    };
-                    let hint = format!(
-                        "'public' specifier can only be used on regular dependencies, not {kind_name}",
-                    );
-                    if with_public_feature || with_z_public {
-                        bail!(hint)
-                    } else {
-                        // If public feature isn't enabled in nightly, we instead warn that.
-                        warnings.push(hint);
-                        d.public = None;
+                    DepKind::Development | DepKind::Build => {
+                        let kind_name = kind.kind_table();
+                        let hint = format!(
+                            "'public' specifier can only be used on regular dependencies, not {kind_name}",
+                        );
+                        if with_public_feature || with_z_public {
+                            bail!(hint)
+                        } else {
+                            // If public feature isn't enabled in nightly, we instead warn that.
+                            warnings.push(hint);
+                            d.public = None;
+                        }
                     }
                 }
             }
@@ -1311,7 +1311,7 @@ pub fn to_real_manifest(
                 let edition_msrv = RustVersion::try_from(edition_msrv).unwrap();
                 if !edition_msrv.is_compatible_with(pkg_msrv.as_partial()) {
                     bail!(
-                        "rust-version {} is older than first version ({}) required by \
+                        "rust-version {} is imcompatible with the version ({}) required by \
                             the specified edition ({})",
                         pkg_msrv,
                         edition_msrv,
@@ -1377,70 +1377,90 @@ pub fn to_real_manifest(
     }
 
     if is_embedded {
-        let invalid_fields = [
-            ("`workspace`", original_toml.workspace.is_some()),
-            ("`lib`", original_toml.lib.is_some()),
-            ("`bin`", original_toml.bin.is_some()),
-            ("`example`", original_toml.example.is_some()),
-            ("`test`", original_toml.test.is_some()),
-            ("`bench`", original_toml.bench.is_some()),
-            (
-                "`package.workspace`",
-                original_toml
-                    .package()
-                    .map(|p| p.workspace.is_some())
-                    .unwrap_or(false),
-            ),
-            (
-                "`package.build`",
-                original_toml
-                    .package()
-                    .map(|p| p.build.is_some())
-                    .unwrap_or(false),
-            ),
-            (
-                "`package.links`",
-                original_toml
-                    .package()
-                    .map(|p| p.links.is_some())
-                    .unwrap_or(false),
-            ),
-            (
-                "`package.autolib`",
-                original_toml
-                    .package()
-                    .map(|p| p.autolib.is_some())
-                    .unwrap_or(false),
-            ),
-            (
-                "`package.autobins`",
-                original_toml
-                    .package()
-                    .map(|p| p.autobins.is_some())
-                    .unwrap_or(false),
-            ),
-            (
-                "`package.autoexamples`",
-                original_toml
-                    .package()
-                    .map(|p| p.autoexamples.is_some())
-                    .unwrap_or(false),
-            ),
-            (
-                "`package.autotests`",
-                original_toml
-                    .package()
-                    .map(|p| p.autotests.is_some())
-                    .unwrap_or(false),
-            ),
-            (
-                "`package.autobenches`",
-                original_toml
-                    .package()
-                    .map(|p| p.autobenches.is_some())
-                    .unwrap_or(false),
-            ),
+        let manifest::TomlManifest {
+            cargo_features: _,
+            package: _,
+            project: _,
+            badges: _,
+            features: _,
+            lib,
+            bin,
+            example,
+            test,
+            bench,
+            dependencies: _,
+            dev_dependencies: _,
+            dev_dependencies2: _,
+            build_dependencies,
+            build_dependencies2,
+            target: _,
+            lints: _,
+            hints: _,
+            workspace,
+            profile: _,
+            patch: _,
+            replace: _,
+            _unused_keys: _,
+        } = &original_toml;
+        let mut invalid_fields = vec![
+            ("`workspace`", workspace.is_some()),
+            ("`lib`", lib.is_some()),
+            ("`bin`", bin.is_some()),
+            ("`example`", example.is_some()),
+            ("`test`", test.is_some()),
+            ("`bench`", bench.is_some()),
+            ("`build-dependencies`", build_dependencies.is_some()),
+            ("`build_dependencies`", build_dependencies2.is_some()),
         ];
+        if let Some(package) = original_toml.package() {
+            let manifest::TomlPackage {
+                edition: _,
+                rust_version: _,
+                name: _,
+                version: _,
+                authors: _,
+                build,
+                metabuild,
+                default_target: _,
+                forced_target: _,
+                links,
+                exclude: _,
+                include: _,
+                publish: _,
+                workspace,
+                im_a_teapot: _,
+                autolib,
+                autobins,
+                autoexamples,
+                autotests,
+                autobenches,
+                default_run,
+                description: _,
+                homepage: _,
+                documentation: _,
+                readme: _,
+                keywords: _,
+                categories: _,
+                license: _,
+                license_file: _,
+                repository: _,
+                resolver: _,
+                metadata: _,
+                _invalid_cargo_features: _,
+            } = package.as_ref();
+            invalid_fields.extend([
+                ("`package.workspace`", workspace.is_some()),
+                ("`package.build`", build.is_some()),
+                ("`package.metabuild`", metabuild.is_some()),
+                ("`package.links`", links.is_some()),
+                ("`package.autolib`", autolib.is_some()),
+                ("`package.autobins`", autobins.is_some()),
+                ("`package.autoexamples`", autoexamples.is_some()),
+                ("`package.autotests`", autotests.is_some()),
+                ("`package.autobenches`", autobenches.is_some()),
+                ("`package.default-run`", default_run.is_some()),
+            ]);
+        }
         let invalid_fields = invalid_fields
             .into_iter()
             .filter_map(|(name, invalid)| invalid.then_some(name))
@@ -2550,10 +2570,10 @@ pub fn validate_profile(
     }
 
     if let Some(panic) = &root.panic {
-        if panic != "unwind" && panic != "abort" {
+        if panic != "unwind" && panic != "abort" && panic != "immediate-abort" {
             bail!(
                 "`panic` setting of `{}` is not a valid setting, \
-                     must be `unwind` or `abort`",
+                     must be `unwind`, `abort`, or `immediate-abort`.",
                 panic
             );
         }
@@ -2602,6 +2622,15 @@ fn validate_profile_layer(
         match (
             features.require(Feature::trim_paths()),
             cli_unstable.trim_paths,
+        ) {
+            (Err(e), false) => return Err(e),
+            _ => {}
+        }
+    }
+    if profile.panic.as_deref() == Some("immediate-abort") {
+        match (
+            features.require(Feature::panic_immediate_abort()),
+            cli_unstable.panic_immediate_abort,
         ) {
             (Err(e), false) => return Err(e),
             _ => {}
