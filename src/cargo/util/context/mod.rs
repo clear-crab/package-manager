@@ -79,6 +79,7 @@ use crate::util::network::http::configure_http_handle;
 use crate::util::network::http::http_handle;
 use crate::util::{CanonicalUrl, closest_msg, internal};
 use crate::util::{Filesystem, IntoUrl, IntoUrlWithBase, Rustc};
+use annotate_snippets::Level;
 use anyhow::{Context as _, anyhow, bail, format_err};
 use cargo_credential::Secret;
 use cargo_util::paths;
@@ -652,42 +653,54 @@ impl GlobalContext {
 
     /// The directory to use for intermediate build artifacts.
     ///
-    /// Falls back to the target directory if not specified.
+    /// Callers should prefer [`Workspace::build_dir`] instead.
+    pub fn build_dir(&self, workspace_manifest_path: &Path) -> CargoResult<Option<Filesystem>> {
+        let Some(val) = &self.build_config()?.build_dir else {
+            return Ok(None);
+        };
+        self.custom_build_dir(val, workspace_manifest_path)
+            .map(Some)
+    }
+
+    /// The directory to use for intermediate build artifacts.
     ///
     /// Callers should prefer [`Workspace::build_dir`] instead.
-    pub fn build_dir(&self, workspace_manifest_path: &PathBuf) -> CargoResult<Option<Filesystem>> {
-        if let Some(val) = &self.build_config()?.build_dir {
-            let replacements = vec![
-                (
-                    "{workspace-root}",
-                    workspace_manifest_path
-                        .parent()
-                        .unwrap()
-                        .to_str()
-                        .context("workspace root was not valid utf-8")?
-                        .to_string(),
-                ),
-                (
-                    "{cargo-cache-home}",
-                    self.home()
-                        .as_path_unlocked()
-                        .to_str()
-                        .context("cargo home was not valid utf-8")?
-                        .to_string(),
-                ),
-                ("{workspace-path-hash}", {
-                    let real_path = std::fs::canonicalize(workspace_manifest_path)?;
-                    let hash = crate::util::hex::short_hash(&real_path);
-                    format!("{}{}{}", &hash[0..2], std::path::MAIN_SEPARATOR, &hash[2..])
-                }),
-            ];
+    pub fn custom_build_dir(
+        &self,
+        val: &ConfigRelativePath,
+        workspace_manifest_path: &Path,
+    ) -> CargoResult<Filesystem> {
+        let replacements = [
+            (
+                "{workspace-root}",
+                workspace_manifest_path
+                    .parent()
+                    .unwrap()
+                    .to_str()
+                    .context("workspace root was not valid utf-8")?
+                    .to_string(),
+            ),
+            (
+                "{cargo-cache-home}",
+                self.home()
+                    .as_path_unlocked()
+                    .to_str()
+                    .context("cargo home was not valid utf-8")?
+                    .to_string(),
+            ),
+            ("{workspace-path-hash}", {
+                let real_path = std::fs::canonicalize(workspace_manifest_path)?;
+                let hash = crate::util::hex::short_hash(&real_path);
+                format!("{}{}{}", &hash[0..2], std::path::MAIN_SEPARATOR, &hash[2..])
+            }),
+        ];
 
-            let template_variables = replacements
-                .iter()
-                .map(|(key, _)| key[1..key.len() - 1].to_string())
-                .collect_vec();
+        let template_variables = replacements
+            .iter()
+            .map(|(key, _)| key[1..key.len() - 1].to_string())
+            .collect_vec();
 
-            let path = val
+        let path = val
                 .resolve_templated_path(self, replacements)
                 .map_err(|e| match e {
                     path::ResolveTemplateError::UnexpectedVariable {
@@ -715,20 +728,15 @@ impl GlobalContext {
                     }
                 })?;
 
-            // Check if the target directory is set to an empty string in the config.toml file.
-            if val.raw_value().is_empty() {
-                bail!(
-                    "the build directory is set to an empty string in {}",
-                    val.value().definition
-                )
-            }
-
-            Ok(Some(Filesystem::new(path)))
-        } else {
-            // For now, fallback to the previous implementation.
-            // This will change in the future.
-            return self.target_dir();
+        // Check if the target directory is set to an empty string in the config.toml file.
+        if val.raw_value().is_empty() {
+            bail!(
+                "the build directory is set to an empty string in {}",
+                val.value().definition
+            )
         }
+
+        Ok(Filesystem::new(path))
     }
 
     /// Get a configuration value by key.
@@ -986,54 +994,9 @@ impl GlobalContext {
         }
     }
 
-    /// Get a list of strings.
-    ///
-    /// DO NOT USE outside of the config module. `pub` will be removed in the
-    /// future.
-    ///
-    /// NOTE: this does **not** support environment variables. Use `get` instead
-    /// if you want that.
-    pub fn get_list(&self, key: &str) -> CargoResult<OptValue<Vec<(String, Definition)>>> {
-        let key = ConfigKey::from_str(key);
-        self._get_list(&key)
-    }
-
-    fn _get_list(&self, key: &ConfigKey) -> CargoResult<OptValue<Vec<(String, Definition)>>> {
-        match self.get_cv(key)? {
-            Some(CV::List(val, definition)) => Ok(Some(Value { val, definition })),
-            Some(val) => self.expected("list", key, &val),
-            None => Ok(None),
-        }
-    }
-
-    /// Helper for `StringList` type to get something that is a string or list.
-    fn get_list_or_string(&self, key: &ConfigKey) -> CargoResult<Vec<(String, Definition)>> {
-        let mut res = Vec::new();
-
-        match self.get_cv(key)? {
-            Some(CV::List(val, _def)) => res.extend(val),
-            Some(CV::String(val, def)) => {
-                let split_vs = val.split_whitespace().map(|s| (s.to_string(), def.clone()));
-                res.extend(split_vs);
-            }
-            Some(val) => {
-                return self.expected("string or array of strings", key, &val);
-            }
-            None => {}
-        }
-
-        self.get_env_list(key, &mut res)?;
-
-        Ok(res)
-    }
-
     /// Internal method for getting an environment variable as a list.
     /// If the key is a non-mergeable list and a value is found in the environment, existing values are cleared.
-    fn get_env_list(
-        &self,
-        key: &ConfigKey,
-        output: &mut Vec<(String, Definition)>,
-    ) -> CargoResult<()> {
+    fn get_env_list(&self, key: &ConfigKey, output: &mut Vec<ConfigValue>) -> CargoResult<()> {
         let Some(env_val) = self.env.get_str(key.as_env_key()) else {
             self.check_environment_key_case_mismatch(key);
             return Ok(());
@@ -1058,16 +1021,16 @@ impl GlobalContext {
                         def.clone(),
                     )
                 })?;
-                output.push((s.to_string(), def.clone()));
+                output.push(CV::String(s.to_string(), def.clone()))
             }
         } else {
             output.extend(
                 env_val
                     .split_whitespace()
-                    .map(|s| (s.to_string(), def.clone())),
+                    .map(|s| CV::String(s.to_string(), def.clone())),
             );
         }
-        output.sort_by(|a, b| a.1.cmp(&b.1));
+        output.sort_by(|a, b| a.definition().cmp(b.definition()));
         Ok(())
     }
 
@@ -1408,7 +1371,9 @@ impl GlobalContext {
         let abs = |path: &str, def: &Definition| -> (String, PathBuf, Definition) {
             let abs_path = match def {
                 Definition::Path(p) | Definition::Cli(Some(p)) => p.parent().unwrap().join(&path),
-                Definition::Environment(_) | Definition::Cli(None) => self.cwd().join(&path),
+                Definition::Environment(_) | Definition::Cli(None) | Definition::BuiltIn => {
+                    self.cwd().join(&path)
+                }
             };
             (path.to_string(), abs_path, def.clone())
         };
@@ -1426,7 +1391,16 @@ impl GlobalContext {
             Some(CV::String(s, def)) => {
                 vec![abs(s, def)]
             }
-            Some(CV::List(list, _def)) => list.iter().map(|(s, def)| abs(s, def)).collect(),
+            Some(CV::List(list, _def)) => list
+                .iter()
+                .map(|cv| match cv {
+                    CV::String(s, def) => Ok(abs(s, def)),
+                    other => bail!(
+                        "`include` expected a string or list of strings, but found {} in list",
+                        other.desc()
+                    ),
+                })
+                .collect::<CargoResult<Vec<_>>>()?,
             Some(other) => bail!(
                 "`include` expected a string or list, but found {} in `{}`",
                 other.desc(),
@@ -1582,13 +1556,15 @@ impl GlobalContext {
                         ))?;
                     }
                 } else {
-                    self.shell().warn(format!(
+                    self.shell().print_report(&[
+                        Level::WARNING.secondary_title(
+                        format!(
                         "`{}` is deprecated in favor of `{filename_without_extension}.toml`",
                         possible.display(),
-                    ))?;
-                    self.shell().note(
-                        format!("if you need to support cargo 1.38 or earlier, you can symlink `{filename_without_extension}` to `{filename_without_extension}.toml`"),
-                    )?;
+                    )).element(Level::HELP.message(
+                        format!("if you need to support cargo 1.38 or earlier, you can symlink `{filename_without_extension}` to `{filename_without_extension}.toml`")))
+
+                    ], false)?;
                 }
             }
 
@@ -1805,6 +1781,26 @@ impl GlobalContext {
                 toolchain_exe.exists().then_some(toolchain_exe)
             })
             .unwrap_or_else(|| PathBuf::from(tool_str))
+    }
+
+    /// Get the `paths` overrides config value.
+    pub fn paths_overrides(&self) -> CargoResult<OptValue<Vec<(String, Definition)>>> {
+        let key = ConfigKey::from_str("paths");
+        // paths overrides cannot be set via env config, so use get_cv here.
+        match self.get_cv(&key)? {
+            Some(CV::List(val, definition)) => {
+                let val = val
+                    .into_iter()
+                    .map(|cv| match cv {
+                        CV::String(s, def) => Ok((s, def)),
+                        other => self.expected("string", &key, &other),
+                    })
+                    .collect::<CargoResult<Vec<_>>>()?;
+                Ok(Some(Value { val, definition }))
+            }
+            Some(val) => self.expected("list", &key, &val),
+            None => Ok(None),
+        }
     }
 
     pub fn jobserver_from_env(&self) -> Option<&jobserver::Client> {
@@ -2165,7 +2161,7 @@ enum KeyOrIdx {
 pub enum ConfigValue {
     Integer(i64, Definition),
     String(String, Definition),
-    List(Vec<(String, Definition)>, Definition),
+    List(Vec<ConfigValue>, Definition),
     Table(HashMap<String, ConfigValue>, Definition),
     Boolean(bool, Definition),
 }
@@ -2178,11 +2174,11 @@ impl fmt::Debug for ConfigValue {
             CV::String(s, def) => write!(f, "{} (from {})", s, def),
             CV::List(list, def) => {
                 write!(f, "[")?;
-                for (i, (s, def)) in list.iter().enumerate() {
+                for (i, item) in list.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{} (from {})", s, def)?;
+                    write!(f, "{item:?}")?;
                 }
                 write!(f, "] (from {})", def)
             }
@@ -2192,16 +2188,6 @@ impl fmt::Debug for ConfigValue {
 }
 
 impl ConfigValue {
-    fn get_definition(&self) -> &Definition {
-        match self {
-            CV::Boolean(_, def)
-            | CV::Integer(_, def)
-            | CV::String(_, def)
-            | CV::List(_, def)
-            | CV::Table(_, def) => def,
-        }
-    }
-
     fn from_toml(def: Definition, toml: toml::Value) -> CargoResult<ConfigValue> {
         let mut error_path = Vec::new();
         Self::from_toml_inner(def, toml, &mut error_path).with_context(|| {
@@ -2233,7 +2219,7 @@ impl ConfigValue {
                 val.into_iter()
                     .enumerate()
                     .map(|(i, toml)| match toml {
-                        toml::Value::String(val) => Ok((val, def.clone())),
+                        toml::Value::String(val) => Ok(CV::String(val, def.clone())),
                         v => {
                             path.push(KeyOrIdx::Idx(i));
                             bail!("expected string but found {} at index {i}", v.type_str())
@@ -2268,9 +2254,7 @@ impl ConfigValue {
             CV::Boolean(s, _) => toml::Value::Boolean(s),
             CV::String(s, _) => toml::Value::String(s),
             CV::Integer(i, _) => toml::Value::Integer(i),
-            CV::List(l, _) => {
-                toml::Value::Array(l.into_iter().map(|(s, _)| toml::Value::String(s)).collect())
-            }
+            CV::List(l, _) => toml::Value::Array(l.into_iter().map(|cv| cv.into_toml()).collect()),
             CV::Table(l, _) => {
                 toml::Value::Table(l.into_iter().map(|(k, v)| (k, v.into_toml())).collect())
             }
@@ -2312,7 +2296,7 @@ impl ConfigValue {
                         mem::swap(new, old);
                     }
                 }
-                old.sort_by(|a, b| a.1.cmp(&b.1));
+                old.sort_by(|a, b| a.definition().cmp(b.definition()));
             }
             (&mut CV::Table(ref mut old, _), CV::Table(ref mut new, _)) => {
                 for (key, value) in mem::take(new) {
@@ -2381,9 +2365,15 @@ impl ConfigValue {
         }
     }
 
-    pub fn list(&self, key: &str) -> CargoResult<&[(String, Definition)]> {
+    pub fn string_list(&self, key: &str) -> CargoResult<Vec<(String, Definition)>> {
         match self {
-            CV::List(list, _) => Ok(list),
+            CV::List(list, _) => list
+                .iter()
+                .map(|cv| match cv {
+                    CV::String(s, def) => Ok((s.clone(), def.clone())),
+                    _ => self.expected("string", key),
+                })
+                .collect::<CargoResult<_>>(),
             _ => self.expected("list", key),
         }
     }
