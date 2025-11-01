@@ -112,6 +112,7 @@ pub use value::{Definition, OptValue, Value};
 
 mod key;
 pub use key::ConfigKey;
+use key::KeyOrIdx;
 
 mod path;
 pub use path::{ConfigRelativePath, PathAndArgs};
@@ -1025,7 +1026,8 @@ impl GlobalContext {
             })?;
             let values = toml_v.as_array().expect("env var was not array");
             for value in values {
-                // TODO: support other types.
+                // Until we figure out how to deal with it through `-Zadvanced-env`,
+                // complex array types are unsupported.
                 let s = value.as_str().ok_or_else(|| {
                     ConfigError::new(
                         format!("expected string, found {}", value.type_str()),
@@ -1255,11 +1257,19 @@ impl GlobalContext {
         output: &mut Vec<CV>,
     ) -> CargoResult<()> {
         let includes = self.include_paths(cv, false)?;
-        for (path, abs_path, def) in includes {
+        for include in includes {
+            let Some(abs_path) = include.resolve_path(self) else {
+                continue;
+            };
+
             let mut cv = self
                 ._load_file(&abs_path, seen, false, WhyLoad::FileDiscovery)
                 .with_context(|| {
-                    format!("failed to load config include `{}` from `{}`", path, def)
+                    format!(
+                        "failed to load config include `{}` from `{}`",
+                        include.path.display(),
+                        include.def
+                    )
                 })?;
             self.load_unmerged_include(&mut cv, seen, output)?;
             output.push(cv);
@@ -1362,11 +1372,19 @@ impl GlobalContext {
         }
         // Accumulate all values here.
         let mut root = CV::Table(HashMap::new(), value.definition().clone());
-        for (path, abs_path, def) in includes {
+        for include in includes {
+            let Some(abs_path) = include.resolve_path(self) else {
+                continue;
+            };
+
             self._load_file(&abs_path, seen, true, why_load)
                 .and_then(|include| root.merge(include, true))
                 .with_context(|| {
-                    format!("failed to load config include `{}` from `{}`", path, def)
+                    format!(
+                        "failed to load config include `{}` from `{}`",
+                        include.path.display(),
+                        include.def
+                    )
                 })?;
         }
         root.merge(value, true)?;
@@ -1374,46 +1392,56 @@ impl GlobalContext {
     }
 
     /// Converts the `include` config value to a list of absolute paths.
-    fn include_paths(
-        &self,
-        cv: &mut CV,
-        remove: bool,
-    ) -> CargoResult<Vec<(String, PathBuf, Definition)>> {
-        let abs = |path: &str, def: &Definition| -> (String, PathBuf, Definition) {
-            let abs_path = match def {
-                Definition::Path(p) | Definition::Cli(Some(p)) => p.parent().unwrap().join(&path),
-                Definition::Environment(_) | Definition::Cli(None) | Definition::BuiltIn => {
-                    self.cwd().join(&path)
-                }
-            };
-            (path.to_string(), abs_path, def.clone())
-        };
+    fn include_paths(&self, cv: &mut CV, remove: bool) -> CargoResult<Vec<ConfigInclude>> {
         let CV::Table(table, _def) = cv else {
             unreachable!()
         };
-        let owned;
         let include = if remove {
-            owned = table.remove("include");
-            owned.as_ref()
+            table.remove("include").map(Cow::Owned)
         } else {
-            table.get("include")
+            table.get("include").map(Cow::Borrowed)
         };
-        let includes = match include {
-            Some(CV::String(s, def)) => {
-                vec![abs(s, def)]
-            }
+        let includes = match include.map(|c| c.into_owned()) {
+            Some(CV::String(s, def)) => vec![ConfigInclude::new(s, def)],
             Some(CV::List(list, _def)) => list
-                .iter()
-                .map(|cv| match cv {
-                    CV::String(s, def) => Ok(abs(s, def)),
+                .into_iter()
+                .enumerate()
+                .map(|(idx, cv)| match cv {
+                    CV::String(s, def) => Ok(ConfigInclude::new(s, def)),
+                    CV::Table(mut table, def) => {
+                        // Extract `include.path`
+                        let s = match table.remove("path") {
+                            Some(CV::String(s, _)) => s,
+                            Some(other) => bail!(
+                                "expected a string, but found {} at `include[{idx}].path` in `{def}`",
+                                other.desc()
+                            ),
+                            None => bail!("missing field `path` at `include[{idx}]` in `{def}`"),
+                        };
+
+                        // Extract optional `include.optional` field
+                        let optional = match table.remove("optional") {
+                            Some(CV::Boolean(b, _)) => b,
+                            Some(other) => bail!(
+                                "expected a boolean, but found {} at `include[{idx}].optional` in `{def}`",
+                                other.desc()
+                            ),
+                            None => false,
+                        };
+
+                        let mut include = ConfigInclude::new(s, def);
+                        include.optional = optional;
+                        Ok(include)
+                    }
                     other => bail!(
-                        "`include` expected a string or list of strings, but found {} in list",
-                        other.desc()
+                        "expected a string or table, but found {} at `include[{idx}]` in {}",
+                        other.desc(),
+                        other.definition(),
                     ),
                 })
                 .collect::<CargoResult<Vec<_>>>()?,
             Some(other) => bail!(
-                "`include` expected a string or list, but found {} in `{}`",
+                "expected a string or list of strings, but found {} at `include` in `{}",
                 other.desc(),
                 other.definition()
             ),
@@ -1422,11 +1450,13 @@ impl GlobalContext {
             }
         };
 
-        for (path, abs_path, def) in &includes {
-            if abs_path.extension() != Some(OsStr::new("toml")) {
+        for include in &includes {
+            if include.path.extension() != Some(OsStr::new("toml")) {
                 bail!(
                     "expected a config include path ending with `.toml`, \
-                     but found `{path}` from `{def}`",
+                     but found `{}` from `{}`",
+                    include.path.display(),
+                    include.def,
                 )
             }
         }
@@ -1445,14 +1475,10 @@ impl GlobalContext {
             let arg_as_path = self.cwd.join(arg);
             let tmp_table = if !arg.is_empty() && arg_as_path.exists() {
                 // --config path_to_file
-                let str_path = arg_as_path
-                    .to_str()
-                    .ok_or_else(|| {
-                        anyhow::format_err!("config path {:?} is not utf-8", arg_as_path)
+                self._load_file(&arg_as_path, &mut seen, true, WhyLoad::Cli)
+                    .with_context(|| {
+                        format!("failed to load config from `{}`", arg_as_path.display())
                     })?
-                    .to_string();
-                self._load_file(&self.cwd().join(&str_path), &mut seen, true, WhyLoad::Cli)
-                    .with_context(|| format!("failed to load config from `{}`", str_path))?
             } else {
                 let doc = toml_dotted_keys(arg)?;
                 let doc: toml::Value = toml::Value::deserialize(doc.into_deserializer())
@@ -2063,12 +2089,6 @@ impl GlobalContext {
     }
 }
 
-#[derive(Debug)]
-enum KeyOrIdx {
-    Key(String),
-    Idx(usize),
-}
-
 /// Similar to [`toml::Value`] but includes the source location where it is defined.
 #[derive(Eq, PartialEq, Clone)]
 pub enum ConfigValue {
@@ -2131,12 +2151,9 @@ impl ConfigValue {
             toml::Value::Array(val) => Ok(CV::List(
                 val.into_iter()
                     .enumerate()
-                    .map(|(i, toml)| match toml {
-                        toml::Value::String(val) => Ok(CV::String(val, def.clone())),
-                        v => {
-                            path.push(KeyOrIdx::Idx(i));
-                            bail!("expected string but found {} at index {i}", v.type_str())
-                        }
+                    .map(|(i, toml)| {
+                        CV::from_toml_inner(def.clone(), toml, path)
+                            .inspect_err(|_| path.push(KeyOrIdx::Idx(i)))
                     })
                     .collect::<CargoResult<_>>()?,
                 def,
@@ -2486,6 +2503,62 @@ pub fn save_credentials(
     #[allow(unused)]
     fn set_permissions(file: &File, mode: u32) -> CargoResult<()> {
         Ok(())
+    }
+}
+
+/// Represents a config-include value in the configuration.
+///
+/// This intentionally doesn't derive serde deserialization
+/// to avoid any misuse of `GlobalContext::get::<ConfigInclude>()`,
+/// which might lead to wrong config loading order.
+struct ConfigInclude {
+    /// Path to a config-include configuration file.
+    /// Could be either relative or absolute.
+    path: PathBuf,
+    def: Definition,
+    /// Whether this include is optional (missing files are silently ignored)
+    optional: bool,
+}
+
+impl ConfigInclude {
+    fn new(p: impl Into<PathBuf>, def: Definition) -> Self {
+        Self {
+            path: p.into(),
+            def,
+            optional: false,
+        }
+    }
+
+    /// Resolves the absolute path for this include.
+    ///
+    /// For file based include,
+    /// it is relative to parent directory of the config file includes it.
+    /// For example, if `.cargo/config.toml has a `include = "foo.toml"`,
+    /// Cargo will load `.cargo/foo.toml`.
+    ///
+    /// For CLI based include (e.g., `--config 'include = "foo.toml"'`),
+    /// it is relative to the current working directory.
+    ///
+    /// Returns `None` if this is an optional include and the file doesn't exist.
+    /// Otherwise returns `Some(PathBuf)` with the absolute path.
+    fn resolve_path(&self, gctx: &GlobalContext) -> Option<PathBuf> {
+        let abs_path = match &self.def {
+            Definition::Path(p) | Definition::Cli(Some(p)) => p.parent().unwrap(),
+            Definition::Environment(_) | Definition::Cli(None) | Definition::BuiltIn => gctx.cwd(),
+        }
+        .join(&self.path);
+
+        if self.optional && !abs_path.exists() {
+            tracing::info!(
+                "skipping optional include `{}` in `{}`:  file not found at `{}`",
+                self.path.display(),
+                self.def,
+                abs_path.display(),
+            );
+            None
+        } else {
+            Some(abs_path)
+        }
     }
 }
 
