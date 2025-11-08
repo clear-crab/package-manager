@@ -96,6 +96,7 @@ Each new feature described below should explain how to use it.
     * [gc](#gc) --- Global cache garbage collection.
     * [open-namespaces](#open-namespaces) --- Allow multiple packages to participate in the same API namespace
     * [panic-immediate-abort](#panic-immediate-abort) --- Passes `-Cpanic=immediate-abort` to the compiler.
+    * [compile-time-deps](#compile-time-deps) --- Perma-unstable feature for rust-analyzer
 * rustdoc
     * [rustdoc-map](#rustdoc-map) --- Provides mappings for documentation to link to external sites like [docs.rs](https://docs.rs/).
     * [scrape-examples](#scrape-examples) --- Shows examples within documentation.
@@ -112,7 +113,6 @@ Each new feature described below should explain how to use it.
     * [path bases](#path-bases) --- Named base directories for path dependencies.
     * [`unstable-editions`](#unstable-editions) --- Allows use of editions that are not yet stable.
 * Information and metadata
-    * [Build-plan](#build-plan) --- Emits JSON information on which commands will be run.
     * [unit-graph](#unit-graph) --- Emits JSON for Cargo's internal graph structure.
     * [`cargo rustc --print`](#rustc---print) --- Calls rustc with `--print` to display information from rustc.
     * [Build analysis](#build-analysis) --- Record and persist detailed build metrics across runs, with new commands to query past builds.
@@ -254,25 +254,6 @@ artifact-dir = "out"
 
 The `-Zroot-dir` flag sets the root directory relative to which paths are printed.
 This affects both diagnostics and paths emitted by the `file!()` macro.
-
-## Build-plan
-* Tracking Issue: [#5579](https://github.com/rust-lang/cargo/issues/5579)
-
-<div class="warning">
-
-> The build-plan feature is deprecated and may be removed in a future version.
-> See <https://github.com/rust-lang/cargo/issues/7614>.
-
-</div>
-
-The `--build-plan` argument for the `build` command will output JSON with
-information about which commands would be run without actually executing
-anything. This can be useful when integrating with another build tool.
-Example:
-
-```sh
-cargo +nightly build --build-plan -Z unstable-options
-```
 
 ## Metabuild
 * Tracking Issue: [rust-lang/rust#49803](https://github.com/rust-lang/rust/issues/49803)
@@ -2033,6 +2014,20 @@ Enables the new build-dir filesystem layout.
 This layout change unblocks work towards caching and locking improvements.
 
 
+## compile-time-deps
+
+This permanently-unstable flag to only build proc-macros and build scripts (and their required dependencies),
+as well as run the build scripts.
+
+It is intended for use by tools like rust-analyzer and will never be stabilized.
+
+Example:
+
+```console
+cargo +nightly build --compile-time-deps -Z unstable-options
+cargo +nightly check --compile-time-deps --all-targets -Z unstable-options
+```
+
 # Stabilized and removed features
 
 ## Compile progress
@@ -2299,22 +2294,12 @@ Doctest cross-compiling is now unconditionally enabled starting in Rust 1.89. Ru
 
 Multi-package publishing has been stabilized in Rust 1.90.0.
 
-## compile-time-deps
-
-This permanently-unstable flag to only build proc-macros and build scripts (and their required dependencies),
-as well as run the build scripts.
-
-It is intended for use by tools like rust-analyzer and will never be stabilized.
-
-Example:
-
-```console
-cargo +nightly build --compile-time-deps -Z unstable-options
-cargo +nightly check --compile-time-deps --all-targets -Z unstable-options
-```
-
 ## build-dir
 
 Support for `build.build-dir` was stabilized in the 1.91 release.
 See the [config documentation](config.md#buildbuild-dir) for information about changing the build-dir
 
+## Build-plan
+
+The `--build-plan` argument for the `build` command has been removed in 1.93.0-nightly.
+See <https://github.com/rust-lang/cargo/issues/7614> for the reason for its removal.

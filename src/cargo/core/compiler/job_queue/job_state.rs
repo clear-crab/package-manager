@@ -5,7 +5,6 @@ use std::{cell::Cell, marker, sync::Arc};
 use cargo_util::ProcessBuilder;
 
 use crate::CargoResult;
-use crate::core::compiler::build_runner::OutputFile;
 use crate::core::compiler::future_incompat::FutureBreakageItem;
 use crate::core::compiler::timings::SectionTiming;
 use crate::util::Queue;
@@ -73,16 +72,6 @@ impl<'a, 'gctx> JobState<'a, 'gctx> {
         self.messages.push(Message::Run(self.id, cmd.to_string()));
     }
 
-    pub fn build_plan(
-        &self,
-        module_name: String,
-        cmd: ProcessBuilder,
-        filenames: Arc<Vec<OutputFile>>,
-    ) {
-        self.messages
-            .push(Message::BuildPlanMsg(module_name, cmd, filenames));
-    }
-
     pub fn stdout(&self, stdout: String) -> CargoResult<()> {
         if let Some(dedupe) = self.output {
             writeln!(dedupe.gctx.shell().out(), "{}", stdout)?;
@@ -104,12 +93,19 @@ impl<'a, 'gctx> JobState<'a, 'gctx> {
     }
 
     /// See [`Message::Diagnostic`] and [`Message::WarningCount`].
-    pub fn emit_diag(&self, level: &str, diag: String, fixable: bool) -> CargoResult<()> {
+    pub fn emit_diag(
+        &self,
+        level: &str,
+        diag: String,
+        lint: bool,
+        fixable: bool,
+    ) -> CargoResult<()> {
         if let Some(dedupe) = self.output {
             let emitted = dedupe.emit_diag(&diag)?;
             if level == "warning" {
                 self.messages.push(Message::WarningCount {
                     id: self.id,
+                    lint,
                     emitted,
                     fixable,
                 });
@@ -119,6 +115,7 @@ impl<'a, 'gctx> JobState<'a, 'gctx> {
                 id: self.id,
                 level: level.to_string(),
                 diag,
+                lint,
                 fixable,
             });
         }
