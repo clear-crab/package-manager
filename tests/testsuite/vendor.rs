@@ -7,6 +7,7 @@
 use std::fs;
 
 use crate::prelude::*;
+use cargo_test_support::assert_deterministic_mtime;
 use cargo_test_support::compare::assert_e2e;
 use cargo_test_support::git;
 use cargo_test_support::registry::{self, Package, RegistryBuilder};
@@ -2085,4 +2086,69 @@ Caused by:
 
 "#]])
         .run();
+}
+
+#[cargo_test]
+fn vendor_rename_fallback() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.1.0"
+
+                [dependencies]
+                log = "0.3.5"
+            "#,
+        )
+        .file("src/lib.rs", "")
+        .build();
+
+    Package::new("log", "0.3.5").publish();
+
+    p.cargo("vendor --respect-source-config --no-delete")
+        .env("CARGO_LOG", "cargo::ops::vendor=warn")
+        .env("__CARGO_TEST_VENDOR_FALLBACK_CP_SOURCES", "true")
+        .with_status(0)
+        .with_stderr_data(str![[r#"
+...
+[..]failed to `mv "[..]vendor[..].vendor-staging[..]log-0.3.5" "[..]vendor[..]log"`: simulated rename error for testing
+...
+"#]])
+        .run();
+
+    assert!(p.root().join("vendor/log/Cargo.toml").exists());
+}
+
+#[cargo_test]
+fn deterministic_mtime() {
+    Package::new("foo", "0.1.0")
+        // content doesn't matter, we just want to check mtime
+        .file("Cargo.lock", "")
+        .file(".cargo_vcs_info.json", "")
+        .file("src/lib.rs", "")
+        .publish();
+
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "a"
+                edition = "2015"
+
+                [dependencies]
+                foo = '0.1.0'
+            "#,
+        )
+        .file("src/lib.rs", "")
+        .build();
+
+    p.cargo("vendor --respect-source-config").run();
+
+    // Generated files should have deterministic mtime after unpacking.
+    assert_deterministic_mtime(p.root().join("vendor/foo/Cargo.lock"));
+    assert_deterministic_mtime(p.root().join("vendor/foo/Cargo.toml"));
+    assert_deterministic_mtime(p.root().join("vendor/foo/.cargo_vcs_info.json"));
 }

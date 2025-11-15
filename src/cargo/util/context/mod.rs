@@ -158,6 +158,29 @@ macro_rules! get_value_typed {
     };
 }
 
+pub const TOP_LEVEL_CONFIG_KEYS: &[&str] = &[
+    "paths",
+    "alias",
+    "build",
+    "credential-alias",
+    "doc",
+    "env",
+    "future-incompat-report",
+    "cache",
+    "cargo-new",
+    "http",
+    "install",
+    "net",
+    "patch",
+    "profile",
+    "resolver",
+    "registries",
+    "registry",
+    "source",
+    "target",
+    "term",
+];
+
 /// Indicates why a config value is being loaded.
 #[derive(Clone, Copy, Debug)]
 enum WhyLoad {
@@ -710,7 +733,8 @@ impl GlobalContext {
                     .to_string(),
             ),
             ("{workspace-path-hash}", {
-                let real_path = std::fs::canonicalize(workspace_manifest_path)?;
+                let real_path = std::fs::canonicalize(workspace_manifest_path)
+                    .unwrap_or_else(|_err| workspace_manifest_path.to_owned());
                 let hash = crate::util::hex::short_hash(&real_path);
                 format!("{}{}{}", &hash[0..2], std::path::MAIN_SEPARATOR, &hash[2..])
             }),
@@ -1173,6 +1197,9 @@ impl GlobalContext {
                 .unwrap_or(false);
         let cli_target_dir = target_dir.as_ref().map(|dir| Filesystem::new(dir.clone()));
         self.target_dir = cli_target_dir;
+
+        self.shell()
+            .set_unstable_flags_rustc_unicode(self.unstable_flags.rustc_unicode)?;
 
         Ok(())
     }

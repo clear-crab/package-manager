@@ -477,6 +477,25 @@ fn rustc(
             paths::set_file_time_no_err(dep_info_loc, timestamp);
         }
 
+        // This mtime shift for .rmeta is a workaround as rustc incremental build
+        // since rust-lang/rust#114669 (1.90.0) skips unnecessary rmeta generation.
+        //
+        // The situation is like this:
+        //
+        // 1. When build script execution's external dependendies
+        //    (rerun-if-changed, rerun-if-env-changed) got updated,
+        //    the execution unit reran and got a newer mtime.
+        // 2. rustc type-checked the associated crate, though with incremental
+        //    compilation, no rmeta regeneration. Its `.rmeta` stays old.
+        // 3. Run `cargo check` again. Cargo found build script execution had
+        //    a new mtime than existing crate rmeta, so re-checking the crate.
+        //    However the check is a no-op (input has no change), so stuck.
+        if mode.is_check() {
+            for output in outputs.iter() {
+                paths::set_file_time_no_err(&output.path, timestamp);
+            }
+        }
+
         Ok(())
     }));
 
@@ -1095,11 +1114,14 @@ fn add_error_format_and_color(build_runner: &BuildRunner<'_, '_>, cmd: &mut Proc
     cmd.arg("--error-format=json");
     let mut json = String::from("--json=diagnostic-rendered-ansi,artifacts,future-incompat");
 
-    match build_runner.bcx.build_config.message_format {
-        MessageFormat::Short | MessageFormat::Json { short: true, .. } => {
-            json.push_str(",diagnostic-short");
-        }
-        _ => {}
+    if let MessageFormat::Short | MessageFormat::Json { short: true, .. } =
+        build_runner.bcx.build_config.message_format
+    {
+        json.push_str(",diagnostic-short");
+    } else if build_runner.bcx.gctx.shell().err_unicode()
+        && build_runner.bcx.gctx.cli_unstable().rustc_unicode
+    {
+        json.push_str(",diagnostic-unicode");
     }
 
     if enable_timings {
@@ -1653,7 +1675,7 @@ fn build_deps_args(
     if build_runner.bcx.gctx.cli_unstable().build_dir_new_layout {
         let mut map = BTreeMap::new();
 
-        // Recursively add all depenendency args to rustc process
+        // Recursively add all dependency args to rustc process
         add_dep_arg(&mut map, build_runner, unit);
 
         let paths = map.into_iter().map(|(_, path)| path).sorted_unstable();
