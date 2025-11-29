@@ -494,6 +494,7 @@ fn cargo_package_should_build_in_build_dir_and_output_to_target_dir() {
 [ROOT]/foo/build-dir/package/foo-0.0.1/Cargo.toml.orig
 [ROOT]/foo/build-dir/package/foo-0.0.1/src/main.rs
 [ROOT]/foo/build-dir/package/foo-0.0.1.crate
+[ROOT]/foo/build-dir/CACHEDIR.TAG
 
 "#]]);
 
@@ -501,6 +502,7 @@ fn cargo_package_should_build_in_build_dir_and_output_to_target_dir() {
         .join("target-dir")
         .assert_build_dir_layout(str![[r#"
 [ROOT]/foo/target-dir/package/foo-0.0.1.crate
+[ROOT]/foo/target-dir/CACHEDIR.TAG
 
 "#]]);
 }
@@ -943,6 +945,7 @@ fn template_workspace_path_hash_should_handle_symlink() {
 
     p.root().join("target").assert_build_dir_layout(str![[r#"
 [ROOT]/foo/target/CACHEDIR.TAG
+[ROOT]/foo/target/debug/.cargo-lock
 
 "#]]);
 
@@ -977,6 +980,7 @@ fn template_workspace_path_hash_should_handle_symlink() {
 
     p.root().join("target").assert_build_dir_layout(str![[r#"
 [ROOT]/foo/target/CACHEDIR.TAG
+[ROOT]/foo/target/debug/.cargo-lock
 
 "#]]);
 
