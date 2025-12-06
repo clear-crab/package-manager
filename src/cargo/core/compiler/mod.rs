@@ -72,9 +72,11 @@ use tracing::{debug, instrument, trace};
 
 pub use self::build_config::UserIntent;
 pub use self::build_config::{BuildConfig, CompileMode, MessageFormat, TimingOutput};
-pub use self::build_context::{
-    BuildContext, FileFlavor, FileType, RustDocFingerprint, RustcTargetData, TargetInfo,
-};
+pub use self::build_context::BuildContext;
+pub use self::build_context::FileFlavor;
+pub use self::build_context::FileType;
+pub use self::build_context::RustcTargetData;
+pub use self::build_context::TargetInfo;
 pub use self::build_runner::{BuildRunner, Metadata, UnitHash};
 pub use self::compilation::{Compilation, Doctest, UnitOutput};
 pub use self::compile_kind::{CompileKind, CompileKindFallback, CompileTarget};
@@ -82,6 +84,7 @@ pub use self::crate_type::CrateType;
 pub use self::custom_build::LinkArgTarget;
 pub use self::custom_build::{BuildOutput, BuildScriptOutputs, BuildScripts, LibraryPath};
 pub(crate) use self::fingerprint::DirtyReason;
+pub use self::fingerprint::RustdocFingerprint;
 pub use self::job_queue::Freshness;
 use self::job_queue::{Job, JobQueue, JobState, Work};
 pub(crate) use self::layout::Layout;
@@ -830,8 +833,13 @@ fn prepare_rustdoc(build_runner: &BuildRunner<'_, '_>, unit: &Unit) -> CargoResu
     if build_runner.bcx.gctx.cli_unstable().rustdoc_depinfo {
         // toolchain-shared-resources is required for keeping the shared styling resources
         // invocation-specific is required for keeping the original rustdoc emission
-        let mut arg =
-            OsString::from("--emit=toolchain-shared-resources,invocation-specific,dep-info=");
+        let mut arg = if build_runner.bcx.gctx.cli_unstable().rustdoc_mergeable_info {
+            // toolchain resources are written at the end, at the same time as merging
+            OsString::from("--emit=invocation-specific,dep-info=")
+        } else {
+            // if not using mergeable CCI, everything is written every time
+            OsString::from("--emit=toolchain-shared-resources,invocation-specific,dep-info=")
+        };
         arg.push(rustdoc_dep_info_loc(build_runner, unit));
         rustdoc.arg(arg);
 
@@ -840,6 +848,19 @@ fn prepare_rustdoc(build_runner: &BuildRunner<'_, '_>, unit: &Unit) -> CargoResu
         }
 
         rustdoc.arg("-Zunstable-options");
+    } else if build_runner.bcx.gctx.cli_unstable().rustdoc_mergeable_info {
+        // toolchain resources are written at the end, at the same time as merging
+        rustdoc.arg("--emit=invocation-specific");
+        rustdoc.arg("-Zunstable-options");
+    }
+
+    if build_runner.bcx.gctx.cli_unstable().rustdoc_mergeable_info {
+        // write out mergeable data to be imported
+        rustdoc.arg("--merge=none");
+        let mut arg = OsString::from("--parts-out-dir=");
+        // `-Zrustdoc-mergeable-info` always uses the new layout.
+        arg.push(build_runner.files().deps_dir_new_layout(unit));
+        rustdoc.arg(arg);
     }
 
     if let Some(trim_paths) = unit.profile.trim_paths.as_ref() {
@@ -1679,37 +1700,9 @@ fn build_deps_args(
     unit: &Unit,
 ) -> CargoResult<()> {
     let bcx = build_runner.bcx;
-    if build_runner.bcx.gctx.cli_unstable().build_dir_new_layout {
-        let mut map = BTreeMap::new();
 
-        // Recursively add all dependency args to rustc process
-        add_dep_arg(&mut map, build_runner, unit);
-
-        let paths = map.into_iter().map(|(_, path)| path).sorted_unstable();
-
-        for path in paths {
-            cmd.arg("-L").arg(&{
-                let mut deps = OsString::from("dependency=");
-                deps.push(path);
-                deps
-            });
-        }
-    } else {
-        cmd.arg("-L").arg(&{
-            let mut deps = OsString::from("dependency=");
-            deps.push(build_runner.files().deps_dir(unit));
-            deps
-        });
-    }
-
-    // Be sure that the host path is also listed. This'll ensure that proc macro
-    // dependencies are correctly found (for reexported macros).
-    if !unit.kind.is_host() {
-        cmd.arg("-L").arg(&{
-            let mut deps = OsString::from("dependency=");
-            deps.push(build_runner.files().host_deps(unit));
-            deps
-        });
+    for arg in lib_search_paths(build_runner, unit)? {
+        cmd.arg(arg);
     }
 
     let deps = build_runner.unit_deps(unit);
@@ -1824,6 +1817,42 @@ fn add_custom_flags(
     }
 
     Ok(())
+}
+
+/// Generate a list of `-L` arguments
+pub fn lib_search_paths(
+    build_runner: &BuildRunner<'_, '_>,
+    unit: &Unit,
+) -> CargoResult<Vec<OsString>> {
+    let mut lib_search_paths = Vec::new();
+    if build_runner.bcx.gctx.cli_unstable().build_dir_new_layout {
+        let mut map = BTreeMap::new();
+
+        // Recursively add all dependency args to rustc process
+        add_dep_arg(&mut map, build_runner, unit);
+
+        let paths = map.into_iter().map(|(_, path)| path).sorted_unstable();
+
+        for path in paths {
+            let mut deps = OsString::from("dependency=");
+            deps.push(path);
+            lib_search_paths.extend(["-L".into(), deps]);
+        }
+    } else {
+        let mut deps = OsString::from("dependency=");
+        deps.push(build_runner.files().deps_dir(unit));
+        lib_search_paths.extend(["-L".into(), deps]);
+    }
+
+    // Be sure that the host path is also listed. This'll ensure that proc macro
+    // dependencies are correctly found (for reexported macros).
+    if !unit.kind.is_host() {
+        let mut deps = OsString::from("dependency=");
+        deps.push(build_runner.files().host_deps(unit));
+        lib_search_paths.extend(["-L".into(), deps]);
+    }
+
+    Ok(lib_search_paths)
 }
 
 /// Generates a list of `--extern` arguments.

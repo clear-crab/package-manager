@@ -336,10 +336,10 @@ fn cargo_tmpdir_should_output_to_build_dir() {
 [ROOT]/foo/build-dir/CACHEDIR.TAG
 [ROOT]/foo/build-dir/debug/.cargo-lock
 [ROOT]/foo/build-dir/debug/build/foo/[HASH]/deps/foo-[HASH].d
-[ROOT]/foo/build-dir/debug/build/foo/[HASH]/deps/foo-[HASH].d
+[ROOT]/foo/build-dir/debug/build/foo/[HASH]/deps/foo.d
 [ROOT]/foo/build-dir/debug/build/foo/[HASH]/deps/foo[..].d
 [ROOT]/foo/build-dir/debug/build/foo/[HASH]/deps/foo-[HASH][EXE]
-[ROOT]/foo/build-dir/debug/build/foo/[HASH]/deps/foo-[HASH][EXE]
+[ROOT]/foo/build-dir/debug/build/foo/[HASH]/deps/foo[EXE]
 [ROOT]/foo/build-dir/debug/build/foo/[HASH]/deps/foo[..][EXE]
 [ROOT]/foo/build-dir/debug/build/foo/[HASH]/fingerprint/invoked.timestamp
 [ROOT]/foo/build-dir/debug/build/foo/[HASH]/fingerprint/dep-test-bin-foo
@@ -396,8 +396,8 @@ fn examples_should_output_to_build_dir_and_uplift_to_target_dir() {
 [ROOT]/foo/build-dir/debug/build/foo/[HASH]/fingerprint/example-foo
 [ROOT]/foo/build-dir/debug/build/foo/[HASH]/fingerprint/example-foo.json
 [ROOT]/foo/build-dir/debug/build/foo/[HASH]/fingerprint/invoked.timestamp
-[ROOT]/foo/build-dir/debug/examples/foo[..][EXE]
-[ROOT]/foo/build-dir/debug/examples/foo[..].d
+[ROOT]/foo/build-dir/debug/build/foo/[HASH]/deps/foo[..][EXE]
+[ROOT]/foo/build-dir/debug/build/foo/[HASH]/deps/foo[..].d
 
 "#]]);
 
@@ -524,8 +524,8 @@ fn cargo_package_should_build_in_build_dir_and_output_to_target_dir() {
 [ROOT]/foo/build-dir/package/foo-0.0.1/Cargo.toml
 [ROOT]/foo/build-dir/package/foo-0.0.1/Cargo.toml.orig
 [ROOT]/foo/build-dir/package/foo-0.0.1/src/main.rs
-[ROOT]/foo/build-dir/package/foo-0.0.1.crate
 [ROOT]/foo/build-dir/CACHEDIR.TAG
+[ROOT]/foo/build-dir/package/tmp-crate/foo-0.0.1.crate
 
 "#]]);
 
@@ -1007,7 +1007,6 @@ fn template_workspace_path_hash_should_handle_symlink() {
 
     p.root().join("target").assert_build_dir_layout(str![[r#"
 [ROOT]/foo/target/CACHEDIR.TAG
-[ROOT]/foo/target/debug/.cargo-lock
 
 "#]]);
 
@@ -1046,7 +1045,6 @@ fn template_workspace_path_hash_should_handle_symlink() {
 
     p.root().join("target").assert_build_dir_layout(str![[r#"
 [ROOT]/foo/target/CACHEDIR.TAG
-[ROOT]/foo/target/debug/.cargo-lock
 
 "#]]);
 
