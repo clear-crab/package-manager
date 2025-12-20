@@ -127,21 +127,12 @@ fn log_msg_timing_info() {
         &get_log(0),
         str![[r#"
 [
-  {
-    "...": "{...}",
-    "reason": "build-started"
-  },
+  "{...}",
   {
     "elapsed": "{...}",
     "index": 0,
-    "mode": "check",
-    "package_id": "path+[ROOTURL]/foo/bar#0.0.0",
     "reason": "unit-started",
     "run_id": "[..]T[..]Z-[..]",
-    "target": {
-      "kind": "lib",
-      "name": "bar"
-    },
     "timestamp": "[..]T[..]Z"
   },
   {
@@ -164,14 +155,8 @@ fn log_msg_timing_info() {
   {
     "elapsed": "{...}",
     "index": 1,
-    "mode": "check",
-    "package_id": "path+[ROOTURL]/foo#0.0.0",
     "reason": "unit-started",
     "run_id": "[..]T[..]Z-[..]",
-    "target": {
-      "kind": "lib",
-      "name": "foo"
-    },
     "timestamp": "[..]T[..]Z"
   },
   {
@@ -224,21 +209,12 @@ fn log_msg_timing_info_section_timings() {
         &get_log(0),
         str![[r#"
 [
-  {
-    "...": "{...}",
-    "reason": "build-started"
-  },
+  "{...}",
   {
     "elapsed": "{...}",
     "index": 0,
-    "mode": "check",
-    "package_id": "path+[ROOTURL]/foo/bar#0.0.0",
     "reason": "unit-started",
     "run_id": "[..]T[..]Z-[..]",
-    "target": {
-      "kind": "lib",
-      "name": "bar"
-    },
     "timestamp": "[..]T[..]Z"
   },
   {
@@ -293,14 +269,8 @@ fn log_msg_timing_info_section_timings() {
   {
     "elapsed": "{...}",
     "index": 1,
-    "mode": "check",
-    "package_id": "path+[ROOTURL]/foo#0.0.0",
     "reason": "unit-started",
     "run_id": "[..]T[..]Z-[..]",
-    "target": {
-      "kind": "bin",
-      "name": "foo"
-    },
     "timestamp": "[..]T[..]Z"
   },
   {
@@ -373,28 +343,27 @@ fn log_rebuild_reason_fresh_build() {
 "#]])
         .run();
 
-    // Fresh builds do NOT log rebuild-reason
-    // Only build-started and timing-info are logged
     assert_e2e().eq(
         &get_log(0),
         str![[r#"
 [
+  "{...}",
   {
     "...": "{...}",
-    "reason": "build-started"
+    "reason": "unit-graph-finished"
+  },
+  {
+    "index": 0,
+    "reason": "unit-fingerprint",
+    "run_id": "[..]T[..]Z-[..]",
+    "status": "new",
+    "timestamp": "[..]T[..]Z"
   },
   {
     "...": "{...}",
     "reason": "unit-started"
   },
-  {
-    "...": "{...}",
-    "reason": "unit-rmeta-finished"
-  },
-  {
-    "...": "{...}",
-    "reason": "unit-finished"
-  }
+  "{...}"
 ]
 "#]]
         .is_json()
@@ -410,7 +379,37 @@ fn log_rebuild_reason_file_changed() {
         .file("src/lib.rs", "")
         .build();
 
-    p.cargo("check").run();
+    p.cargo("check -Zbuild-analysis")
+        .env("CARGO_BUILD_ANALYSIS_ENABLED", "true")
+        .masquerade_as_nightly_cargo(&["build-analysis"])
+        .run();
+
+    assert_e2e().eq(
+        &get_log(0),
+        str![[r#"
+[
+  "{...}",
+  {
+    "...": "{...}",
+    "reason": "unit-graph-finished"
+  },
+  {
+    "index": 0,
+    "reason": "unit-fingerprint",
+    "run_id": "[..]T[..]Z-[..]",
+    "status": "new",
+    "timestamp": "[..]T[..]Z"
+  },
+  {
+    "...": "{...}",
+    "reason": "unit-started"
+  },
+  "{...}"
+]
+"#]]
+        .is_json()
+        .against_jsonlines(),
+    );
 
     // Change source file
     p.change_file("src/lib.rs", "//! comment");
@@ -427,12 +426,13 @@ fn log_rebuild_reason_file_changed() {
 
     // File changes SHOULD log rebuild-reason
     assert_e2e().eq(
-        &get_log(0),
+        &get_log(1),
         str![[r#"
 [
+  "{...}",
   {
     "...": "{...}",
-    "reason": "build-started"
+    "reason": "unit-graph-finished"
   },
   {
     "cause": {
@@ -444,28 +444,17 @@ fn log_rebuild_reason_file_changed() {
       "stale_item": "changed-file",
       "stale_mtime": "{...}"
     },
-    "mode": "check",
-    "package_id": "path+[ROOTURL]/foo#0.0.0",
-    "reason": "rebuild",
+    "index": 0,
+    "reason": "unit-fingerprint",
     "run_id": "[..]T[..]Z-[..]",
-    "target": {
-      "kind": "lib",
-      "name": "foo"
-    },
+    "status": "dirty",
     "timestamp": "[..]T[..]Z"
   },
   {
     "...": "{...}",
     "reason": "unit-started"
   },
-  {
-    "...": "{...}",
-    "reason": "unit-rmeta-finished"
-  },
-  {
-    "...": "{...}",
-    "reason": "unit-finished"
-  }
+  "{...}"
 ]
 "#]]
         .is_json()
@@ -481,7 +470,37 @@ fn log_rebuild_reason_no_rebuild() {
         .build();
 
     // First build
-    p.cargo("check").run();
+    p.cargo("check -Zbuild-analysis")
+        .env("CARGO_BUILD_ANALYSIS_ENABLED", "true")
+        .masquerade_as_nightly_cargo(&["build-analysis"])
+        .run();
+
+    assert_e2e().eq(
+        &get_log(0),
+        str![[r#"
+[
+  "{...}",
+  {
+    "...": "{...}",
+    "reason": "unit-graph-finished"
+  },
+  {
+    "index": 0,
+    "reason": "unit-fingerprint",
+    "run_id": "[..]T[..]Z-[..]",
+    "status": "new",
+    "timestamp": "[..]T[..]Z"
+  },
+  {
+    "...": "{...}",
+    "reason": "unit-started"
+  },
+  "{...}"
+]
+"#]]
+        .is_json()
+        .against_jsonlines(),
+    );
 
     // Second build without changes
     p.cargo("check -Zbuild-analysis")
@@ -495,13 +514,195 @@ fn log_rebuild_reason_no_rebuild() {
 
     // Should NOT contain any rebuild-reason messages since nothing rebuilt
     assert_e2e().eq(
+        &get_log(1),
+        str![[r#"
+[
+  "{...}",
+  {
+    "...": "{...}",
+    "reason": "unit-graph-finished"
+  },
+  {
+    "index": 0,
+    "reason": "unit-fingerprint",
+    "run_id": "[..]T[..]Z-[..]",
+    "status": "fresh",
+    "timestamp": "[..]T[..]Z"
+  }
+]
+"#]]
+        .is_json()
+        .against_jsonlines(),
+    );
+}
+
+#[cargo_test]
+fn log_msg_unit_graph() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.0.0"
+                edition = "2015"
+
+                [dependencies]
+                bar = { path = "bar" }
+            "#,
+        )
+        .file("src/lib.rs", "")
+        .file("build.rs", "fn main() {}")
+        .file("bar/Cargo.toml", &basic_manifest("bar", "0.0.0"))
+        .file("bar/src/lib.rs", "")
+        .build();
+
+    // `cargo doc` generates more units than `cargo check`
+    // * check bar
+    // * build foo build.rs
+    // * run foo build.rs
+    // * doc foo
+    // * doc bar
+    p.cargo("doc -Zbuild-analysis")
+        .env("CARGO_BUILD_ANALYSIS_ENABLED", "true")
+        .masquerade_as_nightly_cargo(&["build-analysis", "section-timings"])
+        .run();
+
+    assert_e2e().eq(
         &get_log(0),
         str![[r#"
 [
+  "{...}",
   {
-    "reason": "build-started",
-    "...": "{...}"
-  }
+    "elapsed": "{...}",
+    "reason": "unit-graph-started",
+    "run_id": "[..]T[..]Z-[..]",
+    "timestamp": "[..]T[..]Z"
+  },
+  {
+    "index": 0,
+    "mode": "check",
+    "package_id": "path+[ROOTURL]/foo/bar#0.0.0",
+    "platform": "[HOST_TARGET]",
+    "reason": "unit-registered",
+    "run_id": "[..]T[..]Z-[..]",
+    "target": {
+      "kind": "lib",
+      "name": "bar"
+    },
+    "timestamp": "[..]T[..]Z"
+  },
+  {
+    "index": 1,
+    "mode": "doc",
+    "package_id": "path+[ROOTURL]/foo/bar#0.0.0",
+    "platform": "[HOST_TARGET]",
+    "reason": "unit-registered",
+    "run_id": "[..]T[..]Z-[..]",
+    "target": {
+      "kind": "lib",
+      "name": "bar"
+    },
+    "timestamp": "[..]T[..]Z"
+  },
+  {
+    "index": 2,
+    "mode": "doc",
+    "package_id": "path+[ROOTURL]/foo#0.0.0",
+    "platform": "[HOST_TARGET]",
+    "reason": "unit-registered",
+    "requested": true,
+    "run_id": "[..]T[..]Z-[..]",
+    "target": {
+      "kind": "lib",
+      "name": "foo"
+    },
+    "timestamp": "[..]T[..]Z"
+  },
+  {
+    "index": 3,
+    "mode": "build",
+    "package_id": "path+[ROOTURL]/foo#0.0.0",
+    "platform": "[HOST_TARGET]",
+    "reason": "unit-registered",
+    "run_id": "[..]T[..]Z-[..]",
+    "target": {
+      "kind": "build-script",
+      "name": "build-script-build"
+    },
+    "timestamp": "[..]T[..]Z"
+  },
+  {
+    "index": 4,
+    "mode": "run-custom-build",
+    "package_id": "path+[ROOTURL]/foo#0.0.0",
+    "platform": "[HOST_TARGET]",
+    "reason": "unit-registered",
+    "run_id": "[..]T[..]Z-[..]",
+    "target": {
+      "kind": "build-script",
+      "name": "build-script-build"
+    },
+    "timestamp": "[..]T[..]Z"
+  },
+  {
+    "elapsed": "{...}",
+    "reason": "unit-graph-finished",
+    "run_id": "[..]T[..]Z-[..]",
+    "timestamp": "[..]T[..]Z"
+  },
+  "{...}"
+]
+"#]]
+        .is_json()
+        .against_jsonlines(),
+    );
+}
+
+#[cargo_test]
+fn log_msg_resolution_events() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.0.0"
+                edition = "2015"
+
+                [dependencies]
+                bar = { path = "bar" }
+            "#,
+        )
+        .file("src/lib.rs", "")
+        .file("build.rs", "fn main() {}")
+        .file("bar/Cargo.toml", &basic_manifest("bar", "0.0.0"))
+        .file("bar/src/lib.rs", "")
+        .build();
+
+    p.cargo("doc -Zbuild-analysis")
+        .env("CARGO_BUILD_ANALYSIS_ENABLED", "true")
+        .masquerade_as_nightly_cargo(&["build-analysis", "section-timings"])
+        .run();
+
+    assert_e2e().eq(
+        &get_log(0),
+        str![[r#"
+[
+  "{...}",
+  {
+    "elapsed": "{...}",
+    "reason": "resolution-started",
+    "run_id": "[..]T[..]Z-[..]",
+    "timestamp": "[..]T[..]Z"
+  },
+  {
+    "elapsed": "{...}",
+    "reason": "resolution-finished",
+    "run_id": "[..]T[..]Z-[..]",
+    "timestamp": "[..]T[..]Z"
+  },
+  "{...}"
 ]
 "#]]
         .is_json()

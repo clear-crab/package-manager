@@ -39,22 +39,64 @@ pub enum LogMessage {
         /// Workspace root directory.
         workspace_root: PathBuf,
     },
-    /// Emitted when a compilation unit starts.
-    UnitStarted {
+    /// Emitted when resolving dependencies starts.
+    ResolutionStarted {
+        /// Seconds elapsed from build start.
+        elapsed: f64,
+    },
+    /// Emitted when resolving dependencies finishes.
+    ResolutionFinished {
+        /// Seconds elapsed from build start.
+        elapsed: f64,
+    },
+    /// Emitted when unit graph generation starts.
+    UnitGraphStarted {
+        /// Seconds elapsed from build start.
+        elapsed: f64,
+    },
+    /// Emitted when unit graph generation finishes.
+    UnitGraphFinished {
+        /// Seconds elapsed from build start.
+        elapsed: f64,
+    },
+    /// Emitted when a compilation unit is registered in the unit graph,
+    /// right before [`LogMessage::UnitGraphFinished`] that Cargo finalizes
+    /// the unit graph.
+    UnitRegistered {
         /// Package ID specification.
         package_id: PackageIdSpec,
         /// Cargo target (lib, bin, example, etc.).
         target: Target,
         /// The compilation action this unit is for (check, build, test, etc.).
         mode: CompileMode,
+        /// The target platform this unit builds for.
+        ///
+        /// It is either a [target triple] the compiler accepts,
+        /// or a file name with the `json` extension for a [custom target].
+        ///
+        /// [target triple]: https://doc.rust-lang.org/nightly/rustc/platform-support.html
+        /// [custom target]: https://doc.rust-lang.org/nightly/rustc/targets/custom.html
+        platform: String,
         /// Unit index for compact reference in subsequent events.
+        index: u64,
+        /// Enabled features.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        features: Vec<String>,
+        /// Whether this is requested to build by user directly,
+        /// like via the `-p` flag or the default workspace members.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        requested: bool,
+    },
+    /// Emitted when a compilation unit starts.
+    UnitStarted {
+        /// Unit index from the associated unit-registered event.
         index: u64,
         /// Seconds elapsed from build start.
         elapsed: f64,
     },
     /// Emitted when a section (e.g., rmeta, link) of the compilation unit finishes.
     UnitRmetaFinished {
-        /// Unit index from the associated unit-started event.
+        /// Unit index from the associated unit-registered event.
         index: u64,
         /// Seconds elapsed from build start.
         elapsed: f64,
@@ -66,7 +108,7 @@ pub enum LogMessage {
     ///
     /// Requires `-Zsection-timings` to be enabled.
     UnitSectionStarted {
-        /// Unit index from the associated unit-started event.
+        /// Unit index from the associated unit-registered event.
         index: u64,
         /// Seconds elapsed from build start.
         elapsed: f64,
@@ -77,7 +119,7 @@ pub enum LogMessage {
     ///
     /// Requires `-Zsection-timings` to be enabled.
     UnitSectionFinished {
-        /// Unit index from the associated unit-started event.
+        /// Unit index from the associated unit-registered event.
         index: u64,
         /// Seconds elapsed from build start.
         elapsed: f64,
@@ -86,7 +128,7 @@ pub enum LogMessage {
     },
     /// Emitted when a compilation unit finishes.
     UnitFinished {
-        /// Unit index from the associated unit-started event.
+        /// Unit index from the associated unit-registered event.
         index: u64,
         /// Seconds elapsed from build start.
         elapsed: f64,
@@ -94,17 +136,15 @@ pub enum LogMessage {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         unblocked: Vec<u64>,
     },
-    /// Emitted when a unit needs to be rebuilt.
-    Rebuild {
-        /// Package ID specification.
-        package_id: PackageIdSpec,
-        /// Cargo target (lib, bin, example, etc.).
-        target: Target,
-        /// The compilation action this unit is for (check, build, test, etc.).
-        mode: CompileMode,
+    /// Emitted when rebuild fingerprint information is determined for a unit.
+    UnitFingerprint {
+        /// Unit index from the associated unit-registered event.
+        index: u64,
+        /// Status of the rebuild detection fingerprint of this unit
+        status: FingerprintStatus,
         /// Reason why the unit is dirty and needs rebuilding.
-        #[serde(skip_deserializing, default = "default_reason")]
-        cause: DirtyReason,
+        #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
+        cause: Option<DirtyReason>,
     },
 }
 
@@ -115,6 +155,21 @@ pub struct Target {
     pub name: String,
     /// Target kind (lib, bin, test, bench, example, build-script).
     pub kind: Cow<'static, str>,
+}
+
+/// Status of the rebuild detection fingerprint.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FingerprintStatus {
+    /// There is no previous fingerprints for this unit.
+    /// Might be a brand-new build.
+    New,
+    /// The current fingerprint doesn't match the previous fingerprints.
+    /// Rebuild needed.
+    Dirty,
+    /// The current fingerprint matches the previous fingerprints.
+    /// No rebuild needed.
+    Fresh,
 }
 
 impl From<&crate::core::Target> for Target {
@@ -156,8 +211,4 @@ impl LogMessage {
         writer.write_all(b"\n")?;
         Ok(())
     }
-}
-
-fn default_reason() -> DirtyReason {
-    DirtyReason::NothingObvious
 }

@@ -17,7 +17,6 @@ use crate::util::{CargoResult, GlobalContext};
 
 use cargo_util::paths;
 use indexmap::IndexMap;
-use itertools::Itertools as _;
 use std::collections::HashMap;
 use std::io::BufWriter;
 use std::time::{Duration, Instant};
@@ -53,9 +52,6 @@ pub struct Timings<'gctx> {
     /// Total number of dirty units.
     total_dirty: u32,
     /// A map from unit to index.
-    ///
-    /// This for saving log size.
-    /// Only the unit-started event needs to hold the entire unit information.
     unit_to_index: HashMap<Unit, u64>,
     /// Time tracking for each individual unit.
     unit_times: Vec<UnitTime>,
@@ -174,13 +170,6 @@ impl<'gctx> Timings<'gctx> {
                 None
             }
         };
-        let unit_to_index = bcx
-            .unit_graph
-            .keys()
-            .sorted()
-            .enumerate()
-            .map(|(i, unit)| (unit.clone(), i as u64))
-            .collect();
 
         Timings {
             gctx: bcx.gctx,
@@ -193,7 +182,7 @@ impl<'gctx> Timings<'gctx> {
             profile,
             total_fresh: 0,
             total_dirty: 0,
-            unit_to_index,
+            unit_to_index: bcx.unit_to_index.clone(),
             unit_times: Vec::new(),
             active: HashMap::new(),
             last_cpu_state,
@@ -237,9 +226,6 @@ impl<'gctx> Timings<'gctx> {
         };
         if let Some(logger) = build_runner.bcx.logger {
             logger.log(LogMessage::UnitStarted {
-                package_id: unit_time.unit.pkg.package_id().to_spec(),
-                target: (&unit_time.unit.target).into(),
-                mode: unit_time.unit.mode,
                 index: self.unit_to_index[&unit_time.unit],
                 elapsed: start,
             });
@@ -430,12 +416,12 @@ impl<'gctx> Timings<'gctx> {
                 .lines()
                 .next()
                 .expect("rustc version");
-            let requested_targets = &build_runner
+            let requested_targets = build_runner
                 .bcx
                 .build_config
                 .requested_kinds
                 .iter()
-                .map(|kind| build_runner.bcx.target_data.short_name(kind))
+                .map(|kind| build_runner.bcx.target_data.short_name(kind).to_owned())
                 .collect::<Vec<_>>();
             let num_cpus = std::thread::available_parallelism()
                 .ok()
@@ -446,7 +432,7 @@ impl<'gctx> Timings<'gctx> {
 
             let ctx = report::RenderContext {
                 start_str: self.start_str.clone(),
-                root_units: &self.root_targets,
+                root_units: self.root_targets.clone(),
                 profile: self.profile.clone(),
                 total_fresh: self.total_fresh,
                 total_dirty: self.total_dirty,
