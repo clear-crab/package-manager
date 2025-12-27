@@ -2122,6 +2122,73 @@ fn vendor_rename_fallback() {
 }
 
 #[cargo_test]
+fn vendor_local_registry() {
+    // A regression test for rust-lang/cargo#16412
+    let root = paths::root();
+    fs::create_dir(root.join(".cargo")).unwrap();
+    fs::write(
+        root.join(".cargo/config.toml"),
+        r#"
+            [source.crates-io]
+            registry = 'https://wut'
+            replace-with = 'my-awesome-local-registry'
+
+            [source.my-awesome-local-registry]
+            local-registry = 'registry'
+        "#,
+    )
+    .unwrap();
+
+    Package::new("bar", "0.0.0")
+        .local(true)
+        .file("src/lib.rs", "pub fn bar() {}")
+        .publish();
+
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                edition = "2021"
+
+                [dependencies]
+                bar = "0.0.0"
+            "#,
+        )
+        .file("src/lib.rs", "pub fn foo() { bar::bar(); }")
+        .build();
+
+    p.cargo("vendor --respect-source-config")
+        .with_stderr_data(str![[r#"
+[LOCKING] 1 package to latest compatible version
+[UNPACKING] bar v0.0.0 (registry `[ROOT]/registry`)
+   Vendoring bar v0.0.0 ([ROOT]/home/.cargo/registry/src/-[HASH]/bar-0.0.0) to vendor/bar
+To use vendored sources, add this to your .cargo/config.toml for this project:
+
+
+"#]])
+        .run();
+
+    assert_e2e().eq(
+        p.read_file("vendor/bar/Cargo.toml"),
+        str![[r#"
+
+            [package]
+            name = "bar"
+            version = "0.0.0"
+            authors = []
+        
+"#]],
+    );
+
+    assert_e2e().eq(
+        p.read_file("vendor/bar/src/lib.rs"),
+        str!["pub fn bar() {}"],
+    );
+}
+
+#[cargo_test]
 fn deterministic_mtime() {
     Package::new("foo", "0.1.0")
         // content doesn't matter, we just want to check mtime
@@ -2151,4 +2218,41 @@ fn deterministic_mtime() {
     assert_deterministic_mtime(p.root().join("vendor/foo/Cargo.lock"));
     assert_deterministic_mtime(p.root().join("vendor/foo/Cargo.toml"));
     assert_deterministic_mtime(p.root().join("vendor/foo/.cargo_vcs_info.json"));
+}
+
+#[cargo_test]
+fn vendor_filters_git_files_recursively() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.1.0"
+
+                [dependencies]
+                bar = "0.1.0"
+            "#,
+        )
+        .file("src/lib.rs", "")
+        .build();
+
+    Package::new("bar", "0.1.0")
+        .file("src/lib.rs", "")
+        .file(".gitattributes", "*.rs text")
+        .file("subdir/.gitattributes", "*.c text")
+        .file("subdir/.gitignore", "target/")
+        .file("deep/nested/.git/config", "")
+        .file("tests/.gitattributes", "*.txt text")
+        .publish();
+
+    p.cargo("vendor --respect-source-config").run();
+
+    // After fix, these should be filtered
+    assert!(!p.root().join("vendor/bar/subdir/.gitattributes").exists());
+    assert!(!p.root().join("vendor/bar/subdir/.gitignore").exists());
+    assert!(!p.root().join("vendor/bar/deep/nested/.git").exists());
+    assert!(!p.root().join("vendor/bar/tests/.gitattributes").exists());
+    assert!(!p.root().join("vendor/bar/.gitattributes").exists());
+    assert!(p.root().join("vendor/bar/src/lib.rs").exists());
 }
