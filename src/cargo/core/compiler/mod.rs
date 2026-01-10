@@ -72,7 +72,7 @@ use regex::Regex;
 use tracing::{debug, instrument, trace};
 
 pub use self::build_config::UserIntent;
-pub use self::build_config::{BuildConfig, CompileMode, MessageFormat, TimingOutput};
+pub use self::build_config::{BuildConfig, CompileMode, MessageFormat};
 pub use self::build_context::BuildContext;
 pub use self::build_context::FileFlavor;
 pub use self::build_context::FileType;
@@ -97,7 +97,9 @@ use self::unit_graph::UnitDep;
 use crate::core::compiler::future_incompat::FutureIncompatReport;
 use crate::core::compiler::locking::LockKey;
 use crate::core::compiler::timings::SectionTiming;
-pub use crate::core::compiler::unit::{Unit, UnitInterner};
+pub use crate::core::compiler::unit::Unit;
+pub use crate::core::compiler::unit::UnitIndex;
+pub use crate::core::compiler::unit::UnitInterner;
 use crate::core::manifest::TargetSourcePath;
 use crate::core::profiles::{PanicStrategy, Profile, StripInner};
 use crate::core::{Feature, PackageId, Target, Verbosity};
@@ -114,7 +116,6 @@ use cargo_util_schemas::manifest::TomlDebugInfo;
 use cargo_util_schemas::manifest::TomlTrimPaths;
 use cargo_util_schemas::manifest::TomlTrimPathsValue;
 use rustfix::diagnostics::Applicability;
-pub(crate) use timings::CompilationSection;
 
 const RUSTDOC_CRATE_VERSION_FLAG: &str = "--crate-version";
 
@@ -1173,8 +1174,7 @@ fn add_allow_features(build_runner: &BuildRunner<'_, '_>, cmd: &mut ProcessBuild
 /// [`--error-format`]: https://doc.rust-lang.org/nightly/rustc/command-line-arguments.html#--error-format-control-how-errors-are-produced
 fn add_error_format_and_color(build_runner: &BuildRunner<'_, '_>, cmd: &mut ProcessBuilder) {
     let enable_timings = build_runner.bcx.gctx.cli_unstable().section_timings
-        && (!build_runner.bcx.build_config.timing_outputs.is_empty()
-            || build_runner.bcx.logger.is_some());
+        && (build_runner.bcx.build_config.timing_report || build_runner.bcx.logger.is_some());
     if enable_timings {
         cmd.arg("-Zunstable-options");
     }
@@ -1480,31 +1480,6 @@ fn build_base_args(
             .env("RUSTC_BOOTSTRAP", "1");
     }
 
-    // Add `CARGO_BIN_EXE_` environment variables for building tests.
-    if unit.target.is_test() || unit.target.is_bench() {
-        for bin_target in unit
-            .pkg
-            .manifest()
-            .targets()
-            .iter()
-            .filter(|target| target.is_bin())
-        {
-            // For `cargo check` builds we do not uplift the CARGO_BIN_EXE_ artifacts to the
-            // artifact-dir. We do not want to provide a path to a non-existent binary but we still
-            // need to provide *something* so `env!("CARGO_BIN_EXE_...")` macros will compile.
-            let exe_path = build_runner
-                .files()
-                .bin_link_for_target(bin_target, unit.kind, build_runner.bcx)?
-                .map(|path| path.as_os_str().to_os_string())
-                .unwrap_or_else(|| OsString::from(format!("placeholder:{}", bin_target.name())));
-
-            let name = bin_target
-                .binary_filename()
-                .unwrap_or(bin_target.name().to_string());
-            let key = format!("CARGO_BIN_EXE_{}", name);
-            cmd.env(&key, exe_path);
-        }
-    }
     Ok(())
 }
 
@@ -1808,7 +1783,7 @@ fn build_deps_args(
         cmd.arg(arg);
     }
 
-    for (var, env) in artifact::get_env(build_runner, deps)? {
+    for (var, env) in artifact::get_env(build_runner, unit, deps)? {
         cmd.env(&var, env);
     }
 
@@ -2042,9 +2017,9 @@ struct ManifestErrorContext {
     /// The path to the manifest.
     path: PathBuf,
     /// The locations of various spans within the manifest.
-    spans: toml::Spanned<toml::de::DeTable<'static>>,
+    spans: Option<toml::Spanned<toml::de::DeTable<'static>>>,
     /// The raw manifest contents.
-    contents: String,
+    contents: Option<String>,
     /// A lookup for all the unambiguous renamings, mapping from the original package
     /// name to the renamed one.
     rename_table: HashMap<InternedString, InternedString>,
@@ -2159,6 +2134,7 @@ fn on_stderr_line_inner(
         static PRIV_DEP_REGEX: LazyLock<Regex> =
             LazyLock::new(|| Regex::new("from private dependency '([A-Za-z0-9-_]+)'").unwrap());
         if let Some(crate_name) = PRIV_DEP_REGEX.captures(diag).and_then(|m| m.get(1))
+            && let Some(ref contents) = manifest.contents
             && let Some(span) = manifest.find_crate_span(crate_name.as_str())
         {
             let rel_path = pathdiff::diff_paths(&manifest.path, &manifest.cwd)
@@ -2170,7 +2146,7 @@ fn on_stderr_line_inner(
                 crate_name.as_str()
             )))
             .element(
-                Snippet::source(&manifest.contents)
+                Snippet::source(contents)
                     .path(rel_path)
                     .annotation(AnnotationKind::Context.span(span)),
             )];
@@ -2408,8 +2384,8 @@ impl ManifestErrorContext {
         let bcx = build_runner.bcx;
         ManifestErrorContext {
             path: unit.pkg.manifest_path().to_owned(),
-            spans: unit.pkg.manifest().document().clone(),
-            contents: unit.pkg.manifest().contents().to_owned(),
+            spans: unit.pkg.manifest().document().cloned(),
+            contents: unit.pkg.manifest().contents().map(String::from),
             requested_kinds: bcx.target_data.requested_kinds().to_owned(),
             host_name: bcx.rustc().host,
             rename_table,
@@ -2450,9 +2426,13 @@ impl ManifestErrorContext {
     /// baz = { path = "../bar", package = "bar" }
     /// ```
     fn find_crate_span(&self, unrenamed: &str) -> Option<Range<usize>> {
+        let Some(ref spans) = self.spans else {
+            return None;
+        };
+
         let orig_name = self.rename_table.get(unrenamed)?.as_str();
 
-        if let Some((k, v)) = get_key_value(&self.spans, &["dependencies", orig_name]) {
+        if let Some((k, v)) = get_key_value(&spans, &["dependencies", orig_name]) {
             // We make some effort to find the unrenamed text: in
             //
             // ```
@@ -2472,8 +2452,7 @@ impl ManifestErrorContext {
         // [target.x86_64-unknown-linux-gnu.dependencies] or
         // [target.'cfg(something)'.dependencies]. We filter out target tables
         // that don't match a requested target or a requested cfg.
-        if let Some(target) = self
-            .spans
+        if let Some(target) = spans
             .as_ref()
             .get("target")
             .and_then(|t| t.as_ref().as_table())

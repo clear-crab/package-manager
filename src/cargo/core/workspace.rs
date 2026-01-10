@@ -509,17 +509,12 @@ impl<'gctx> Workspace<'gctx> {
                 url,
                 deps.iter()
                     .map(|(name, dependency_cv)| {
-                        crate::util::toml::to_dependency(
+                        crate::util::toml::config_patch_to_dependency(
                             &dependency_cv.val,
                             name,
                             source,
                             self.gctx,
                             &mut warnings,
-                            /* platform */ None,
-                            // NOTE: Since we use ConfigRelativePath, this root isn't used as
-                            // any relative paths are resolved before they'd be joined with root.
-                            Path::new("unused-relative-path"),
-                            /* kind */ None,
                         )
                         .map(|dep| Patch {
                             dep,
@@ -1990,14 +1985,14 @@ impl MaybePackage {
         }
     }
 
-    pub fn contents(&self) -> &str {
+    pub fn contents(&self) -> Option<&str> {
         match self {
             MaybePackage::Package(p) => p.manifest().contents(),
             MaybePackage::Virtual(v) => v.contents(),
         }
     }
 
-    pub fn document(&self) -> &toml::Spanned<toml::de::DeTable<'static>> {
+    pub fn document(&self) -> Option<&toml::Spanned<toml::de::DeTable<'static>>> {
         match self {
             MaybePackage::Package(p) => p.manifest().document(),
             MaybePackage::Virtual(v) => v.document(),

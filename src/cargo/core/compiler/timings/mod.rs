@@ -5,13 +5,15 @@
 
 pub mod report;
 
-use super::{CompileMode, Unit};
+use super::CompileMode;
+use super::Unit;
+use super::UnitIndex;
 use crate::core::PackageId;
+use crate::core::compiler::BuildContext;
+use crate::core::compiler::BuildRunner;
 use crate::core::compiler::job_queue::JobId;
-use crate::core::compiler::{BuildContext, BuildRunner, TimingOutput};
 use crate::util::cpu::State;
 use crate::util::log_message::LogMessage;
-use crate::util::machine_message::{self, Message};
 use crate::util::style;
 use crate::util::{CargoResult, GlobalContext};
 
@@ -35,8 +37,6 @@ pub struct Timings<'gctx> {
     enabled: bool,
     /// If true, saves an HTML report to disk.
     report_html: bool,
-    /// If true, emits JSON information with timing information.
-    report_json: bool,
     /// When Cargo started.
     start: Instant,
     /// A rendered string of when compilation started.
@@ -52,7 +52,7 @@ pub struct Timings<'gctx> {
     /// Total number of dirty units.
     total_dirty: u32,
     /// A map from unit to index.
-    unit_to_index: HashMap<Unit, u64>,
+    unit_to_index: HashMap<Unit, UnitIndex>,
     /// Time tracking for each individual unit.
     unit_times: Vec<UnitTime>,
     /// Units that are in the process of being built.
@@ -104,7 +104,7 @@ struct UnitTime {
 /// This is used by the HTML report's JavaScript to render the pipeline graph.
 #[derive(serde::Serialize)]
 pub struct UnitData {
-    pub i: u64,
+    pub i: UnitIndex,
     pub name: String,
     pub version: String,
     pub mode: String,
@@ -112,25 +112,22 @@ pub struct UnitData {
     pub features: Vec<String>,
     pub start: f64,
     pub duration: f64,
-    pub unblocked_units: Vec<u64>,
-    pub unblocked_rmeta_units: Vec<u64>,
+    pub unblocked_units: Vec<UnitIndex>,
+    pub unblocked_rmeta_units: Vec<UnitIndex>,
     pub sections: Option<Vec<(report::SectionName, report::SectionData)>>,
 }
 
 impl<'gctx> Timings<'gctx> {
     pub fn new(bcx: &BuildContext<'_, 'gctx>, root_units: &[Unit]) -> Timings<'gctx> {
         let start = bcx.gctx.creation_time();
-        let has_report = |what| bcx.build_config.timing_outputs.contains(&what);
-        let report_html = has_report(TimingOutput::Html);
-        let report_json = has_report(TimingOutput::Json);
-        let enabled = report_html | report_json | bcx.logger.is_some();
+        let report_html = bcx.build_config.timing_report;
+        let enabled = report_html | bcx.logger.is_some();
 
         if !enabled {
             return Timings {
                 gctx: bcx.gctx,
                 enabled,
                 report_html,
-                report_json,
                 start,
                 start_str: String::new(),
                 root_targets: Vec::new(),
@@ -175,7 +172,6 @@ impl<'gctx> Timings<'gctx> {
             gctx: bcx.gctx,
             enabled,
             report_html,
-            report_json,
             start,
             start_str,
             root_targets,
@@ -196,9 +192,10 @@ impl<'gctx> Timings<'gctx> {
         if !self.enabled {
             return;
         }
-        let mut target = if unit.target.is_lib() && unit.mode == CompileMode::Build {
-            // Special case for brevity, since most dependencies hit
-            // this path.
+        let mut target = if unit.target.is_lib()
+            && matches!(unit.mode, CompileMode::Build | CompileMode::Check { .. })
+        {
+            // Special case for brevity, since most dependencies hit this path.
             "".to_string()
         } else {
             format!(" {}", unit.target.description_named())
@@ -286,18 +283,7 @@ impl<'gctx> Timings<'gctx> {
         unit_time
             .unblocked_units
             .extend(unblocked.iter().cloned().cloned());
-        if self.report_json {
-            let msg = machine_message::TimingInfo {
-                package_id: unit_time.unit.pkg.package_id().to_spec(),
-                target: &unit_time.unit.target,
-                mode: unit_time.unit.mode,
-                duration: unit_time.duration,
-                rmeta_time: unit_time.rmeta_time,
-                sections: unit_time.sections.clone().into_iter().collect(),
-            }
-            .to_json_string();
-            crate::drop_println!(self.gctx, "{}", msg);
-        }
+
         if let Some(logger) = build_runner.bcx.logger {
             let unblocked = unblocked.iter().map(|u| self.unit_to_index[u]).collect();
             logger.log(LogMessage::UnitFinished {

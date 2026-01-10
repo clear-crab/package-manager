@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Debug;
 
@@ -5,12 +6,13 @@ use serde::Serialize;
 
 use super::*;
 use crate::core::Shell;
+use crate::core::compiler::UnitIndex;
 
 /// Tells a better story of why a build is considered "dirty" that leads
 /// to a recompile. Usually constructed via [`Fingerprint::compare`].
 ///
 /// [`Fingerprint::compare`]: super::Fingerprint::compare
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "dirty_reason", rename_all = "kebab-case")]
 pub enum DirtyReason {
     RustcChanged,
@@ -61,8 +63,8 @@ pub enum DirtyReason {
         new_value: Option<String>,
     },
     LocalFingerprintTypeChanged {
-        old: &'static str,
-        new: &'static str,
+        old: String,
+        new: String,
     },
     NumberOfDependenciesChanged {
         old: usize,
@@ -73,11 +75,7 @@ pub enum DirtyReason {
         new: InternedString,
     },
     UnitDependencyInfoChanged {
-        old_name: InternedString,
-        old_fingerprint: u64,
-
-        new_name: InternedString,
-        new_fingerprint: u64,
+        unit: UnitIndex,
     },
     FsStatusOutdated(FsStatus),
     NothingObvious,
@@ -148,7 +146,13 @@ impl DirtyReason {
         }
     }
 
-    pub fn present_to(&self, s: &mut Shell, unit: &Unit, root: &Path) -> CargoResult<()> {
+    pub fn present_to(
+        &self,
+        s: &mut Shell,
+        unit: &Unit,
+        root: &Path,
+        index_to_unit: &HashMap<UnitIndex, Unit>,
+    ) -> CargoResult<()> {
         match self {
             DirtyReason::RustcChanged => s.dirty_because(unit, "the toolchain changed"),
             DirtyReason::FeaturesChanged { .. } => {
@@ -220,8 +224,12 @@ impl DirtyReason {
                 unit,
                 format_args!("name of dependency changed ({old} => {new})"),
             ),
-            DirtyReason::UnitDependencyInfoChanged { .. } => {
-                s.dirty_because(unit, "dependency info changed")
+            DirtyReason::UnitDependencyInfoChanged { unit: dep_unit } => {
+                let dep_name = index_to_unit.get(dep_unit).map(|u| u.pkg.name()).unwrap();
+                s.dirty_because(
+                    unit,
+                    format_args!("info of dependency `{dep_name}` changed"),
+                )
             }
             DirtyReason::FsStatusOutdated(status) => match status {
                 FsStatus::Stale => s.dirty_because(unit, "stale, unknown reason"),
@@ -301,19 +309,23 @@ impl DirtyReason {
                     ),
                 },
                 FsStatus::StaleDependency {
-                    name,
+                    unit: dep_unit,
                     dep_mtime,
                     max_mtime,
-                    ..
                 } => {
+                    let dep_name = index_to_unit.get(dep_unit).map(|u| u.pkg.name()).unwrap();
                     let after = Self::after(*max_mtime, *dep_mtime, "last build");
                     s.dirty_because(
                         unit,
-                        format_args!("the dependency {name} was rebuilt ({after})"),
+                        format_args!("the dependency `{dep_name}` was rebuilt ({after})"),
                     )
                 }
-                FsStatus::StaleDepFingerprint { name } => {
-                    s.dirty_because(unit, format_args!("the dependency {name} was rebuilt"))
+                FsStatus::StaleDepFingerprint { unit: dep_unit } => {
+                    let dep_name = index_to_unit.get(dep_unit).map(|u| u.pkg.name()).unwrap();
+                    s.dirty_because(
+                        unit,
+                        format_args!("the dependency `{dep_name}` was rebuilt"),
+                    )
                 }
                 FsStatus::UpToDate { .. } => {
                     unreachable!()
@@ -529,8 +541,8 @@ mod json_schema {
             str![[r#"
 {
   "dirty_reason": "unit-dependency-name-changed",
-  "old": "old_dep",
-  "new": "new_dep"
+  "new": "new_dep",
+  "old": "old_dep"
 }
 "#]]
             .is_json()
@@ -540,20 +552,14 @@ mod json_schema {
     #[test]
     fn unit_dependency_info_changed() {
         let reason = DirtyReason::UnitDependencyInfoChanged {
-            old_name: "serde".into(),
-            old_fingerprint: 0x1234567890abcdef,
-            new_name: "serde".into(),
-            new_fingerprint: 0xfedcba0987654321,
+            unit: UnitIndex(15),
         };
         assert_data_eq!(
             to_json(&reason),
             str![[r#"
 {
   "dirty_reason": "unit-dependency-info-changed",
-  "new_fingerprint": 18364757930599072545,
-  "new_name": "serde",
-  "old_fingerprint": 1311768467294899695,
-  "old_name": "serde"
+  "unit": 15
 }
 "#]]
             .is_json()
@@ -647,7 +653,7 @@ mod json_schema {
     #[test]
     fn fs_status_stale_dependency() {
         let reason = DirtyReason::FsStatusOutdated(FsStatus::StaleDependency {
-            name: "serde".into(),
+            unit: UnitIndex(42),
             dep_mtime: FileTime::from_unix_time(1730567892, 789000000),
             max_mtime: FileTime::from_unix_time(1730567890, 123000000),
         });
@@ -659,7 +665,7 @@ mod json_schema {
   "dirty_reason": "fs-status-outdated",
   "fs_status": "stale-dependency",
   "max_mtime": 1730567890123.0,
-  "name": "serde"
+  "unit": 42
 }
 "#]]
             .is_json()
@@ -669,7 +675,7 @@ mod json_schema {
     #[test]
     fn fs_status_stale_dep_fingerprint() {
         let reason = DirtyReason::FsStatusOutdated(FsStatus::StaleDepFingerprint {
-            name: "tokio".into(),
+            unit: UnitIndex(42),
         });
         assert_data_eq!(
             to_json(&reason),
@@ -677,7 +683,7 @@ mod json_schema {
 {
   "dirty_reason": "fs-status-outdated",
   "fs_status": "stale-dep-fingerprint",
-  "name": "tokio"
+  "unit": 42
 }
 "#]]
             .is_json()
@@ -830,8 +836,8 @@ mod json_schema {
     #[test]
     fn local_fingerprint_type_changed() {
         let reason = DirtyReason::LocalFingerprintTypeChanged {
-            old: "precalculated",
-            new: "rerun-if-changed",
+            old: "precalculated".to_owned(),
+            new: "rerun-if-changed".to_owned(),
         };
         assert_data_eq!(
             to_json(&reason),

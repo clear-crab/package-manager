@@ -31,7 +31,8 @@ pub fn cli() -> Command {
             subcommand("timings")
                 .about("Reports the build timings of previous sessions (unstable)")
                 .arg_manifest_path()
-                .arg(flag("open", "Opens the timing report in a browser")),
+                .arg(flag("open", "Opens the timing report in a browser"))
+                .arg(opt("id", "Session ID to report on").value_name("ID")),
         )
         .subcommand(
             subcommand("sessions")
@@ -43,6 +44,12 @@ pub fn cli() -> Command {
                         .value_parser(clap::value_parser!(u64).range(1..))
                         .default_value("10"),
                 ),
+        )
+        .subcommand(
+            subcommand("rebuilds")
+                .about("Reports rebuild reasons from previous sessions (unstable)")
+                .arg_manifest_path()
+                .arg(opt("id", "Session ID to report on").value_name("ID")),
         )
 }
 
@@ -75,6 +82,19 @@ pub fn exec(gctx: &mut GlobalContext, args: &ArgMatches) -> CliResult {
             ops::report_sessions(gctx, ws.as_ref(), opts)?;
             Ok(())
         }
+        Some(("rebuilds", args)) => {
+            gctx.cli_unstable().fail_if_stable_command(
+                gctx,
+                "report rebuilds",
+                15844,
+                "build-analysis",
+                gctx.cli_unstable().build_analysis,
+            )?;
+            let ws = args.workspace(gctx).ok();
+            let opts = rebuilds_opts(args)?;
+            ops::report_rebuilds(gctx, ws.as_ref(), opts)?;
+            Ok(())
+        }
         Some((cmd, _)) => {
             unreachable!("unexpected command {}", cmd)
         }
@@ -102,8 +122,16 @@ fn timings_opts<'a>(
     args: &ArgMatches,
 ) -> CargoResult<ops::ReportTimingsOptions<'a>> {
     let open_result = args.get_flag("open");
+    let id = args
+        .get_one::<String>("id")
+        .map(|s| s.parse())
+        .transpose()?;
 
-    Ok(ops::ReportTimingsOptions { open_result, gctx })
+    Ok(ops::ReportTimingsOptions {
+        open_result,
+        gctx,
+        id,
+    })
 }
 
 fn sessions_opts(args: &ArgMatches) -> CargoResult<ops::ReportSessionsOptions> {
@@ -111,4 +139,13 @@ fn sessions_opts(args: &ArgMatches) -> CargoResult<ops::ReportSessionsOptions> {
     let limit = limit.min(usize::MAX as u64) as usize;
 
     Ok(ops::ReportSessionsOptions { limit })
+}
+
+fn rebuilds_opts(args: &ArgMatches) -> CargoResult<ops::ReportRebuildsOptions> {
+    let id = args
+        .get_one::<String>("id")
+        .map(|s| s.parse())
+        .transpose()?;
+
+    Ok(ops::ReportRebuildsOptions { id })
 }
