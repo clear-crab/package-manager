@@ -292,14 +292,14 @@ fn build_script_should_output_to_build_dir() {
 [ROOT]/foo/build-dir/debug/build/foo/[HASH]/fingerprint/dep-build-script-build-script-build
 [ROOT]/foo/build-dir/debug/build/foo/[HASH]/fingerprint/build-script-build-script-build
 [ROOT]/foo/build-dir/debug/build/foo/[HASH]/fingerprint/build-script-build-script-build.json
-[ROOT]/foo/build-dir/debug/build/foo/[HASH]/build-script/build_script_build[..].d
-[ROOT]/foo/build-dir/debug/build/foo/[HASH]/build-script/build_script_build[..][EXE]
-[ROOT]/foo/build-dir/debug/build/foo/[HASH]/build-script/build-script-build[EXE]
-[ROOT]/foo/build-dir/debug/build/foo/[HASH]/build-script-execution/out/foo.txt
-[ROOT]/foo/build-dir/debug/build/foo/[HASH]/build-script-execution/invoked.timestamp
-[ROOT]/foo/build-dir/debug/build/foo/[HASH]/build-script-execution/output
-[ROOT]/foo/build-dir/debug/build/foo/[HASH]/build-script-execution/root-output
-[ROOT]/foo/build-dir/debug/build/foo/[HASH]/build-script-execution/stderr
+[ROOT]/foo/build-dir/debug/build/foo/[HASH]/deps/build_script_build[..].d
+[ROOT]/foo/build-dir/debug/build/foo/[HASH]/deps/build_script_build[..][EXE]
+[ROOT]/foo/build-dir/debug/build/foo/[HASH]/deps/build-script-build[EXE]
+[ROOT]/foo/build-dir/debug/build/foo/[HASH]/build-script/out/foo.txt
+[ROOT]/foo/build-dir/debug/build/foo/[HASH]/build-script/invoked.timestamp
+[ROOT]/foo/build-dir/debug/build/foo/[HASH]/build-script/output
+[ROOT]/foo/build-dir/debug/build/foo/[HASH]/build-script/root-output
+[ROOT]/foo/build-dir/debug/build/foo/[HASH]/build-script/stderr
 [ROOT]/foo/build-dir/debug/build/foo/[HASH]/.lock
 [ROOT]/foo/build-dir/debug/build/foo/[HASH]/.lock
 [ROOT]/foo/build-dir/debug/build/foo/[HASH]/.lock
@@ -411,6 +411,8 @@ fn examples_should_output_to_build_dir_and_uplift_to_target_dir() {
 [ROOT]/foo/build-dir/debug/build/foo/[HASH]/.lock
 
 "#]]);
+
+    assert!(!p.root().join("build-dir/debug/examples").exists());
 
     p.root()
         .join("target-dir")
@@ -1115,6 +1117,104 @@ fn template_should_handle_reject_unmatched_brackets() {
 
 "#]])
         .run();
+}
+
+#[cargo_test]
+fn artifact_deps() {
+    let p = project()
+        .file(
+            ".cargo/config.toml",
+            r#"
+            [build]
+            target-dir = "target-dir"
+            build-dir = "build-dir"
+            "#,
+        )
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.0.0"
+                edition = "2015"
+                authors = []
+                resolver = "2"
+
+                [dependencies]
+                bar = { path = "bar/", artifact = ["bin:bar"] }
+            "#,
+        )
+        .file(
+            "src/main.rs",
+            r#"
+            fn main() {
+                 println!("CARGO_BIN_DIR_BAR={}", env!("CARGO_BIN_DIR_BAR"));
+                 println!("CARGO_BIN_FILE_BAR_bar={}", env!("CARGO_BIN_FILE_BAR_bar"));
+            }
+            "#,
+        )
+        .file(
+            "bar/Cargo.toml",
+            r#"
+                [package]
+                name = "bar"
+                version = "0.1.0"
+                edition = "2015"
+                authors = []
+
+                [[bin]]
+                name = "bar"
+            "#,
+        )
+        .file("bar/src/main.rs", "fn main() {}")
+        .build();
+
+    p.cargo("run -Zbuild-dir-new-layout -Z bindeps")
+        .masquerade_as_nightly_cargo(&["bindeps", "build-dir-new-layout"])
+        .enable_mac_dsym()
+        .with_stderr_data(str![[r#"
+[LOCKING] 1 package to latest compatible version
+[COMPILING] bar v0.1.0 ([ROOT]/foo/bar)
+[COMPILING] foo v0.0.0 ([ROOT]/foo)
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [ELAPSED]s
+[RUNNING] `target-dir/debug/foo[EXE]`
+
+"#]])
+        .with_stdout_data(str![[r#"
+CARGO_BIN_DIR_BAR=[ROOT]/foo/build-dir/debug/build/bar/[HASH]/artifact/bin
+CARGO_BIN_FILE_BAR_bar=[ROOT]/foo/build-dir/debug/build/bar/[HASH]/artifact/bin/bar[..][EXE]
+
+"#]])
+        .run();
+
+    p.root().join("build-dir").assert_build_dir_layout(str![[r#"
+[ROOT]/foo/build-dir/.rustc_info.json
+[ROOT]/foo/build-dir/CACHEDIR.TAG
+[ROOT]/foo/build-dir/debug/.cargo-lock
+[ROOT]/foo/build-dir/debug/build/bar/[HASH]/fingerprint/bin-bar
+[ROOT]/foo/build-dir/debug/build/bar/[HASH]/fingerprint/bin-bar.json
+[ROOT]/foo/build-dir/debug/build/bar/[HASH]/fingerprint/dep-bin-bar
+[ROOT]/foo/build-dir/debug/build/bar/[HASH]/fingerprint/invoked.timestamp
+[ROOT]/foo/build-dir/debug/build/foo/[HASH]/fingerprint/invoked.timestamp
+[ROOT]/foo/build-dir/debug/build/foo/[HASH]/fingerprint/bin-foo
+[ROOT]/foo/build-dir/debug/build/foo/[HASH]/fingerprint/bin-foo.json
+[ROOT]/foo/build-dir/debug/build/foo/[HASH]/fingerprint/dep-bin-foo
+[ROOT]/foo/build-dir/debug/build/bar/[HASH]/artifact/bin/bar[..][EXE]
+[ROOT]/foo/build-dir/debug/build/bar/[HASH]/artifact/bin/bar[..].d
+[ROOT]/foo/build-dir/debug/build/foo/[HASH]/deps/foo[..][EXE]
+[ROOT]/foo/build-dir/debug/build/foo/[HASH]/deps/foo[..].d
+
+"#]]);
+
+    p.root()
+        .join("target-dir")
+        .assert_build_dir_layout(str![[r#"
+[ROOT]/foo/target-dir/CACHEDIR.TAG
+[ROOT]/foo/target-dir/debug/.cargo-lock
+[ROOT]/foo/target-dir/debug/foo[EXE]
+[ROOT]/foo/target-dir/debug/foo.d
+
+"#]]);
 }
 
 fn parse_workspace_manifest_path_hash(hash_dir: &PathBuf) -> PathBuf {
