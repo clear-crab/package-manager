@@ -25,6 +25,8 @@ These lints are all set to the 'allow' level by default.
 
 These lints are all set to the 'warn' level by default.
 - [`blanket_hint_mostly_unused`](#blanket_hint_mostly_unused)
+- [`non_kebab_case_bin`](#non_kebab_case_bin)
+- [`redundant_readme`](#redundant_readme)
 - [`unknown_lints`](#unknown_lints)
 
 ## `blanket_hint_mostly_unused`
@@ -105,6 +107,77 @@ Should be written as a full specific version:
 ```toml
 [dependencies]
 serde = "1.0.219"
+```
+
+
+## `non_kebab_case_bin`
+Group: `style`
+
+Level: `warn`
+
+### What it does
+
+Detect binary names, explicit and implicit, that are not kebab-case
+
+### Why it is bad
+
+Kebab-case binary names is a common convention among command line tools.
+
+### Drawbacks
+
+It would be disruptive to existing users to change the binary name.
+
+A binary may need to conform to externally controlled conventions which can include a different naming convention.
+
+GUI applications may wish to choose a more user focused naming convention, like "Title Case" or "Sentence case".
+
+### Example
+
+```toml
+[[bin]]
+name = "foo_bar"
+```
+
+Should be written as:
+
+```toml
+[[bin]]
+name = "foo-bar"
+```
+
+
+## `redundant_readme`
+Group: `style`
+
+Level: `warn`
+
+### What it does
+
+Checks for `package.readme` fields that can be inferred.
+
+See also [`package.readme` reference documentation](manifest.md#the-readme-field).
+
+### Why it is bad
+
+Adds boilerplate.
+
+### Drawbacks
+
+It might not be obvious if they named their file correctly.
+
+### Example
+
+```toml
+[package]
+name = "foo"
+readme = "README.md"
+```
+
+Should be written as:
+
+```toml
+[package]
+name = "foo"
 ```
 
 
