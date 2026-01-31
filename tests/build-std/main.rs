@@ -165,8 +165,8 @@ fn basic() {
         .build_std_isolated()
         .target_host()
         .with_stderr_data(str![[r#"
+[COMPILING] [..]
 ...
-[COMPILING] foo v0.0.1 ([ROOT]/foo)
 [FINISHED] `test` profile [unoptimized + debuginfo] target(s) in [ELAPSED]s
 [RUNNING] unittests src/lib.rs (target/[HOST_TARGET]/debug/deps/foo-[HASH])
 [RUNNING] unittests src/main.rs (target/[HOST_TARGET]/debug/deps/foo-[HASH])
@@ -312,7 +312,8 @@ fn cross_custom() {
         .file("custom-target.json", target_spec_json())
         .build();
 
-    p.cargo("build --target custom-target.json -v")
+    p.cargo("build --target custom-target.json -v -Zjson-target-spec")
+        .masquerade_as_nightly_cargo(&["json_target_spec"])
         .build_std_arg("core")
         .run();
 }
@@ -352,7 +353,8 @@ fn custom_test_framework() {
     paths.insert(0, sysroot_bin);
     let new_path = env::join_paths(paths).unwrap();
 
-    p.cargo("test --target target.json --no-run -v")
+    p.cargo("test --target target.json --no-run -v -Zjson-target-spec")
+        .masquerade_as_nightly_cargo(&["json_target_spec"])
         .env("PATH", new_path)
         .build_std_arg("core")
         .run();

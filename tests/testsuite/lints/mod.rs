@@ -7,9 +7,15 @@ mod blanket_hint_mostly_unused;
 mod error;
 mod implicit_minimum_version_req;
 mod inherited;
-mod non_kebab_case_bin;
+mod non_kebab_case_bins;
+mod non_kebab_case_features;
+mod non_kebab_case_packages;
+mod non_snake_case_features;
+mod non_snake_case_packages;
+mod redundant_homepage;
 mod redundant_readme;
 mod unknown_lints;
+mod unused_workspace_dependencies;
 mod warning;
 
 #[cargo_test]

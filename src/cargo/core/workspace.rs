@@ -25,8 +25,14 @@ use crate::lints::analyze_cargo_lints_table;
 use crate::lints::rules::blanket_hint_mostly_unused;
 use crate::lints::rules::check_im_a_teapot;
 use crate::lints::rules::implicit_minimum_version_req;
-use crate::lints::rules::non_kebab_case_bin;
+use crate::lints::rules::non_kebab_case_bins;
+use crate::lints::rules::non_kebab_case_features;
+use crate::lints::rules::non_kebab_case_packages;
+use crate::lints::rules::non_snake_case_features;
+use crate::lints::rules::non_snake_case_packages;
+use crate::lints::rules::redundant_homepage;
 use crate::lints::rules::redundant_readme;
+use crate::lints::rules::unused_workspace_dependencies;
 use crate::ops;
 use crate::ops::lockfile::LOCKFILE_NAME;
 use crate::sources::{CRATES_IO_INDEX, CRATES_IO_REGISTRY, PathSource, SourceConfigMap};
@@ -45,7 +51,7 @@ use cargo_util::paths;
 use cargo_util::paths::normalize_path;
 use cargo_util_schemas::manifest;
 use cargo_util_schemas::manifest::RustVersion;
-use cargo_util_schemas::manifest::{TomlDependency, TomlProfiles};
+use cargo_util_schemas::manifest::{TomlDependency, TomlManifest, TomlProfiles};
 use pathdiff::diff_paths;
 
 /// The core abstraction in Cargo for working with a workspace of crates.
@@ -1356,7 +1362,21 @@ impl<'gctx> Workspace<'gctx> {
                 &mut run_error_count,
                 self.gctx,
             )?;
-            non_kebab_case_bin(
+            non_kebab_case_packages(
+                pkg.into(),
+                &path,
+                &cargo_lints,
+                &mut run_error_count,
+                self.gctx,
+            )?;
+            non_snake_case_packages(
+                pkg.into(),
+                &path,
+                &cargo_lints,
+                &mut run_error_count,
+                self.gctx,
+            )?;
+            non_kebab_case_bins(
                 self,
                 pkg.into(),
                 &path,
@@ -1364,7 +1384,28 @@ impl<'gctx> Workspace<'gctx> {
                 &mut run_error_count,
                 self.gctx,
             )?;
+            non_kebab_case_features(
+                pkg.into(),
+                &path,
+                &cargo_lints,
+                &mut run_error_count,
+                self.gctx,
+            )?;
+            non_snake_case_features(
+                pkg.into(),
+                &path,
+                &cargo_lints,
+                &mut run_error_count,
+                self.gctx,
+            )?;
             redundant_readme(
+                pkg.into(),
+                &path,
+                &cargo_lints,
+                &mut run_error_count,
+                self.gctx,
+            )?;
+            redundant_homepage(
                 pkg.into(),
                 &path,
                 &cargo_lints,
@@ -1421,6 +1462,14 @@ impl<'gctx> Workspace<'gctx> {
                 bail!("encountered {verify_error_count} error{plural} while verifying lints")
             }
 
+            unused_workspace_dependencies(
+                self,
+                self.root_maybe(),
+                self.root_manifest(),
+                &cargo_lints,
+                &mut run_error_count,
+                self.gctx,
+            )?;
             implicit_minimum_version_req(
                 self.root_maybe().into(),
                 self.root_manifest(),
@@ -2059,6 +2108,20 @@ impl MaybePackage {
         match self {
             MaybePackage::Package(p) => p.manifest().document(),
             MaybePackage::Virtual(v) => v.document(),
+        }
+    }
+
+    pub fn original_toml(&self) -> Option<&TomlManifest> {
+        match self {
+            MaybePackage::Package(p) => p.manifest().original_toml(),
+            MaybePackage::Virtual(v) => v.original_toml(),
+        }
+    }
+
+    pub fn normalized_toml(&self) -> &TomlManifest {
+        match self {
+            MaybePackage::Package(p) => p.manifest().normalized_toml(),
+            MaybePackage::Virtual(v) => v.normalized_toml(),
         }
     }
 
