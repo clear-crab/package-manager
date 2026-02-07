@@ -25,6 +25,7 @@ use crate::lints::analyze_cargo_lints_table;
 use crate::lints::rules::blanket_hint_mostly_unused;
 use crate::lints::rules::check_im_a_teapot;
 use crate::lints::rules::implicit_minimum_version_req;
+use crate::lints::rules::missing_lints_inheritance;
 use crate::lints::rules::non_kebab_case_bins;
 use crate::lints::rules::non_kebab_case_features;
 use crate::lints::rules::non_kebab_case_packages;
@@ -33,6 +34,7 @@ use crate::lints::rules::non_snake_case_packages;
 use crate::lints::rules::redundant_homepage;
 use crate::lints::rules::redundant_readme;
 use crate::lints::rules::unused_workspace_dependencies;
+use crate::lints::rules::unused_workspace_package_fields;
 use crate::ops;
 use crate::ops::lockfile::LOCKFILE_NAME;
 use crate::sources::{CRATES_IO_INDEX, CRATES_IO_REGISTRY, PathSource, SourceConfigMap};
@@ -1412,6 +1414,14 @@ impl<'gctx> Workspace<'gctx> {
                 &mut run_error_count,
                 self.gctx,
             )?;
+            missing_lints_inheritance(
+                self,
+                pkg,
+                &path,
+                &cargo_lints,
+                &mut run_error_count,
+                self.gctx,
+            )?;
 
             if run_error_count > 0 {
                 let plural = if run_error_count == 1 { "" } else { "s" };
@@ -1462,6 +1472,14 @@ impl<'gctx> Workspace<'gctx> {
                 bail!("encountered {verify_error_count} error{plural} while verifying lints")
             }
 
+            unused_workspace_package_fields(
+                self,
+                self.root_maybe(),
+                self.root_manifest(),
+                &cargo_lints,
+                &mut run_error_count,
+                self.gctx,
+            )?;
             unused_workspace_dependencies(
                 self,
                 self.root_maybe(),
