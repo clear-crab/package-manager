@@ -45,7 +45,11 @@ impl GitShortID {
 #[derive(PartialEq, Clone, Debug)]
 pub struct GitRemote {
     /// URL to a remote repository.
-    url: Url,
+    ///
+    /// This may differ from the [`SourceId`] URL when the original URL
+    /// can't be represented as a WHATWG [`Url`], for example SCP-like URLs.
+    /// See <https://github.com/rust-lang/cargo/issues/16740>.
+    url: String,
 }
 
 /// A local clone of a remote repository's database. Multiple [`GitCheckout`]s
@@ -74,11 +78,20 @@ pub struct GitCheckout<'a> {
 impl GitRemote {
     /// Creates an instance for a remote repository URL.
     pub fn new(url: &Url) -> GitRemote {
-        GitRemote { url: url.clone() }
+        GitRemote {
+            url: url.as_str().to_owned(),
+        }
+    }
+
+    /// Creates an instance with an URL that may not be a valid WHATWG URL.
+    ///
+    /// This is needed because [`SourceId`] hasn't yet supported SCP-like URLs.
+    pub(super) fn new_from_str(url: String) -> GitRemote {
+        GitRemote { url }
     }
 
     /// Gets the remote repository URL.
-    pub fn url(&self) -> &Url {
+    pub fn url(&self) -> &str {
         &self.url
     }
 
@@ -102,7 +115,7 @@ impl GitRemote {
         if let Some(mut db) = db {
             fetch(
                 &mut db.repo,
-                self.url.as_str(),
+                self.url(),
                 reference,
                 gctx,
                 RemoteKind::GitDependency,
@@ -124,7 +137,7 @@ impl GitRemote {
         let mut repo = init(into, true)?;
         fetch(
             &mut repo,
-            self.url.as_str(),
+            self.url(),
             reference,
             gctx,
             RemoteKind::GitDependency,
@@ -266,8 +279,8 @@ impl<'a> GitCheckout<'a> {
     }
 
     /// Gets the remote repository URL.
-    fn remote_url(&self) -> &Url {
-        &self.database.remote.url()
+    fn remote_url(&self) -> &str {
+        self.database.remote.url()
     }
 
     /// Clone a repo for a `revision` into a local path from a `database`.
@@ -378,7 +391,7 @@ impl<'a> GitCheckout<'a> {
     ///
     /// [^1]: <https://git-scm.com/docs/git-submodule#Documentation/git-submodule.txt-none>
     fn update_submodules(&self, gctx: &GlobalContext, quiet: bool) -> CargoResult<()> {
-        return update_submodules(&self.repo, gctx, quiet, self.remote_url().as_str());
+        return update_submodules(&self.repo, gctx, quiet, self.remote_url());
 
         /// Recursive helper for [`GitCheckout::update_submodules`].
         fn update_submodules(
@@ -460,17 +473,37 @@ impl<'a> GitCheckout<'a> {
             // Fetch submodule database and checkout to target revision
             let reference = GitReference::Rev(head.to_string());
 
+            // SCP-like URL is not a WHATWG Standard URL.
+            // `url` crate can't parse SCP-like URLs.
+            // We convert to `ssh://` for SourceId,
+            // but preserve the original URL for fetch to maintain correct semantics
+            // See <https://github.com/rust-lang/cargo/issues/16740>
+            let (source_url, fetch_url) = match child_remote_url.as_ref().into_url() {
+                Ok(url) => (url, None),
+                Err(_) => {
+                    let ssh_url = scp_to_ssh(&child_remote_url)
+                        .ok_or_else(|| anyhow::format_err!("invalid url `{child_remote_url}`"))?
+                        .as_str()
+                        .into_url()?;
+                    (ssh_url, Some(child_remote_url.into_owned()))
+                }
+            };
+
             // GitSource created from SourceId without git precise will result to
             // locked_rev being Deferred and fetch_db always try to fetch if online
-            let source_id = SourceId::for_git(&child_remote_url.into_url()?, reference)?
-                .with_git_precise(Some(head.to_string()));
+            let source_id =
+                SourceId::for_git(&source_url, reference)?.with_git_precise(Some(head.to_string()));
 
-            let mut source = GitSource::new(source_id, gctx)?;
+            let mut source = match &fetch_url {
+                Some(url) => GitSource::new_for_submodule(source_id, url.to_owned(), gctx)?,
+                None => GitSource::new(source_id, gctx)?,
+            };
             source.set_quiet(quiet);
 
             let (db, actual_rev) = source.fetch_db(true).with_context(|| {
                 let name = child.name().unwrap_or("");
-                format!("failed to fetch submodule `{name}` from {child_remote_url}",)
+                let url = fetch_url.unwrap_or_else(|| source_url.to_string());
+                format!("failed to fetch submodule `{name}` from {url}")
             })?;
             db.copy_to(actual_rev, repo.path(), gctx, quiet)?;
             Ok(())
@@ -511,8 +544,9 @@ impl CheckoutGuard {
 ///   (`git@github.com:rust-lang/cargo.git` is not a valid WHATWG URL)
 ///
 /// To overcome these, this patch always tries [`Url::parse`] first to normalize
-/// the path. If it couldn't, append the relative path as the last resort and
-/// pray the remote git service supports non-normalized URLs.
+/// the path. If it couldn't, append the relative path and/or convert SCP-like URLs
+/// to ssh:// format as the last resorts and pray the remote git service supports
+/// non-normalized URLs.
 ///
 /// See also rust-lang/cargo#12404 and rust-lang/cargo#12295.
 ///
@@ -547,6 +581,17 @@ fn absolute_submodule_url<'s>(base_url: &str, submodule_url: &'s str) -> CargoRe
     };
 
     Ok(absolute_url)
+}
+
+/// Converts an SCP-like URL to `ssh://` format.
+fn scp_to_ssh(url: &str) -> Option<String> {
+    let mut gix_url = gix::url::parse(gix::bstr::BStr::new(url.as_bytes())).ok()?;
+    if gix_url.serialize_alternative_form && gix_url.scheme == gix::url::Scheme::Ssh {
+        gix_url.serialize_alternative_form = false;
+        Some(gix_url.to_bstring().to_string())
+    } else {
+        None
+    }
 }
 
 /// Prepare the authentication callbacks for cloning a git repository.
@@ -1303,47 +1348,30 @@ fn fetch_with_libgit2(
 /// descriptors, getting us dangerously close to blowing out the OS limits of
 /// how many fds we can have open. This is detailed in [#4403].
 ///
-/// To try to combat this problem we attempt a `git gc` here. Note, though, that
-/// we may not even have `git` installed on the system! As a result we
-/// opportunistically try a `git gc` when the pack directory looks too big, and
-/// failing that we just blow away the repository and start over.
-///
-/// In theory this shouldn't be too expensive compared to the network request
-/// we're about to issue.
+/// Instead of trying to be clever about when gc is needed, we just run
+/// `git gc --auto` and let git figure it out. It checks its own thresholds
+/// (gc.auto, gc.autoPackLimit) and either does the work or exits quickly.
+/// If git isn't installed, no worries - we skip it.
 ///
 /// [#4403]: https://github.com/rust-lang/cargo/issues/4403
 fn maybe_gc_repo(repo: &mut git2::Repository, gctx: &GlobalContext) -> CargoResult<()> {
-    // Here we arbitrarily declare that if you have more than 100 files in your
-    // `pack` folder that we need to do a gc.
-    let entries = match repo.path().join("objects/pack").read_dir() {
-        Ok(e) => e.count(),
-        Err(_) => {
-            debug!("skipping gc as pack dir appears gone");
-            return Ok(());
-        }
-    };
-    let max = gctx
-        .get_env("__CARGO_PACKFILE_LIMIT")
-        .ok()
-        .and_then(|s| s.parse::<usize>().ok())
-        .unwrap_or(100);
-    if entries < max {
-        debug!("skipping gc as there's only {} pack files", entries);
-        return Ok(());
+    // Let git decide whether gc is actually needed based on its own thresholds
+    // (gc.auto, gc.autoPackLimit). This avoids duplicating git's internal logic
+    // for deciding when housekeeping is needed.
+    //
+    // For testing purposes, __CARGO_PACKFILE_LIMIT can be set to override
+    // gc.autoPackLimit, which has the same meaning. This lets tests force gc
+    // to run by setting a low threshold without depending on git's defaults.
+    let mut cmd = Command::new("git");
+    if let Ok(limit) = gctx.get_env("__CARGO_PACKFILE_LIMIT") {
+        cmd.arg(format!("-c gc.autoPackLimit={}", limit));
     }
+    cmd.arg("gc").arg("--auto").current_dir(repo.path());
 
-    // First up, try a literal `git gc` by shelling out to git. This is pretty
-    // likely to fail though as we may not have `git` installed. Note that
-    // libgit2 doesn't currently implement the gc operation, so there's no
-    // equivalent there.
-    match Command::new("git")
-        .arg("gc")
-        .current_dir(repo.path())
-        .output()
-    {
+    match cmd.output() {
         Ok(out) => {
             debug!(
-                "git-gc status: {}\n\nstdout ---\n{}\nstderr ---\n{}",
+                "git-gc --auto status: {}\n\nstdout ---\n{}\nstderr ---\n{}",
                 out.status,
                 String::from_utf8_lossy(&out.stdout),
                 String::from_utf8_lossy(&out.stderr)
@@ -1354,7 +1382,7 @@ fn maybe_gc_repo(repo: &mut git2::Repository, gctx: &GlobalContext) -> CargoResu
                 return Ok(());
             }
         }
-        Err(e) => debug!("git-gc failed to spawn: {}", e),
+        Err(e) => debug!("git-gc --auto failed to spawn: {}", e),
     }
 
     // Alright all else failed, let's start over.
