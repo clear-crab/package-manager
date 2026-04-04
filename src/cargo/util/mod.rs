@@ -52,6 +52,8 @@ pub mod into_url;
 mod into_url_with_base;
 mod io;
 pub mod job;
+mod local_poll_adapter;
+pub use local_poll_adapter::LocalPollAdapter;
 mod lockserver;
 pub mod log_message;
 pub mod logger;
@@ -66,11 +68,14 @@ pub mod rustc;
 mod semver_eval_ext;
 mod semver_ext;
 pub mod sqlite;
-pub mod style;
 pub mod toml;
 pub mod toml_mut;
 mod vcs;
 mod workspace;
+
+pub use cargo_util_terminal::style;
+pub(crate) use futures::executor::block_on;
+pub(crate) use futures::executor::block_on_stream;
 
 pub fn is_rustup() -> bool {
     #[expect(clippy::disallowed_methods, reason = "consistency with rustup")]

@@ -41,6 +41,26 @@ fn requires_nightly() {
 }
 
 #[cargo_test]
+fn always_show_error_diags() {
+    let p = make_project_with_rustc_warning();
+    p.cargo("check")
+        .masquerade_as_nightly_cargo(&["warnings"])
+        .env("RUSTFLAGS", "-Dunused_variables")
+        .arg("-Zwarnings")
+        .arg("--config")
+        .arg("build.warnings='allow'")
+        .with_stderr_data(str![[r#"
+[CHECKING] foo v0.0.1 ([ROOT]/foo)
+[ERROR] unused variable: `x`
+...
+[ERROR] could not compile `foo` (bin "foo") due to 1 previous error
+
+"#]])
+        .with_status(101)
+        .run();
+}
+
+#[cargo_test]
 fn clippy() {
     let p = project()
         .file(
@@ -261,6 +281,12 @@ fn hard_warning_deny() {
             ),
         )
         .file("src/main.rs", "fn main() {}")
+        .file(
+            "build.rs",
+            r#"fn main() {
+    println!("cargo::warning=from a build script");
+}"#,
+        )
         .build();
 
     // Baseline behavior
@@ -270,6 +296,7 @@ fn hard_warning_deny() {
         .with_stderr_data(str![[r#"
 [WARNING] `package.edition` is unspecified, defaulting to `2015` while the latest is `[..]`
 [COMPILING] foo v0.0.1 ([ROOT]/foo)
+[WARNING] foo@0.0.1: from a build script
 [WARNING] [..]
 
 [WARNING] [..]
@@ -288,6 +315,7 @@ fn hard_warning_deny() {
         .with_stderr_data(str![[r#"
 [WARNING] `package.edition` is unspecified, defaulting to `2015` while the latest is `[..]`
 [COMPILING] foo v0.0.1 ([ROOT]/foo)
+[WARNING] foo@0.0.1: from a build script
 [WARNING] [..]
 
 [WARNING] [..]
@@ -309,6 +337,7 @@ fn hard_warning_deny() {
         .with_stderr_data(str![[r#"
 [WARNING] `package.edition` is unspecified, defaulting to `2015` while the latest is `[..]`
 [COMPILING] foo v0.0.1 ([ROOT]/foo)
+[WARNING] foo@0.0.1: from a build script
 [WARNING] [..]
 
 [WARNING] [..]
@@ -334,6 +363,12 @@ fn hard_warning_allow() {
             ),
         )
         .file("src/main.rs", "fn main() {}")
+        .file(
+            "build.rs",
+            r#"fn main() {
+    println!("cargo::warning=from a build script");
+}"#,
+        )
         .build();
 
     // Baseline behavior
@@ -343,6 +378,7 @@ fn hard_warning_allow() {
         .with_stderr_data(str![[r#"
 [WARNING] `package.edition` is unspecified, defaulting to `2015` while the latest is `[..]`
 [COMPILING] foo v0.0.1 ([ROOT]/foo)
+[WARNING] foo@0.0.1: from a build script
 [WARNING] [..]
 
 [WARNING] [..]
@@ -362,6 +398,7 @@ fn hard_warning_allow() {
         .with_stderr_data(str![[r#"
 [WARNING] `package.edition` is unspecified, defaulting to `2015` while the latest is `[..]`
 [COMPILING] foo v0.0.1 ([ROOT]/foo)
+[WARNING] foo@0.0.1: from a build script
 [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [ELAPSED]s
 
 "#]])
@@ -379,6 +416,12 @@ fn hard_warning_allow() {
         .with_stderr_data(str![[r#"
 [WARNING] `package.edition` is unspecified, defaulting to `2015` while the latest is `[..]`
 [COMPILING] foo v0.0.1 ([ROOT]/foo)
+[WARNING] foo@0.0.1: from a build script
+[WARNING] [..]
+
+[WARNING] [..]
+
+[WARNING] `foo` (bin "foo") generated 2 warnings
 [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [ELAPSED]s
 
 "#]])

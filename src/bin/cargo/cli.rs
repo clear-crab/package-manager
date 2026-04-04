@@ -1,8 +1,8 @@
-use annotate_snippets::Level;
 use anyhow::{Context as _, anyhow};
 use cargo::core::{CliUnstable, features};
 use cargo::util::context::TermConfig;
 use cargo::{CargoResult, drop_print, drop_println};
+use cargo_util_terminal::report::Level;
 use clap::builder::UnknownArgumentValueParser;
 use itertools::Itertools;
 use std::collections::HashMap;
@@ -16,8 +16,8 @@ use super::third_party_subcommands;
 use super::user_defined_aliases;
 use crate::command_prelude::*;
 use crate::util::is_rustup;
-use cargo::core::shell::ColorChoice;
 use cargo::util::style;
+use cargo_util_terminal::ColorChoice;
 
 #[tracing::instrument(skip_all)]
 pub fn main(gctx: &mut GlobalContext) -> CliResult {

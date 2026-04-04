@@ -143,7 +143,7 @@ use crate::core::compiler::future_incompat::{
     self, FutureBreakageItem, FutureIncompatReportPackage,
 };
 use crate::core::resolver::ResolveBehavior;
-use crate::core::{PackageId, Shell, TargetKind};
+use crate::core::{PackageId, TargetKind};
 use crate::util::CargoResult;
 use crate::util::context::WarningHandling;
 use crate::util::diagnostic_server::{self, DiagnosticPrinter};
@@ -151,6 +151,7 @@ use crate::util::errors::AlreadyPrintedError;
 use crate::util::machine_message::{self, Message as _};
 use crate::util::{self, internal};
 use crate::util::{DependencyQueue, GlobalContext, Progress, ProgressStyle, Queue};
+use cargo_util_terminal::Shell;
 
 /// This structure is backed by the `DependencyQueue` type and manages the
 /// queueing of compilation steps for each package. Packages enqueue units of
@@ -649,9 +650,7 @@ impl<'gctx> DrainState<'gctx> {
                 }
             }
             Message::Warning { id, warning } => {
-                if warning_handling != WarningHandling::Allow {
-                    build_runner.bcx.gctx.shell().warn(warning)?;
-                }
+                build_runner.bcx.gctx.shell().warn(warning)?;
                 let lint = false;
                 let emitted = true;
                 let fixable = false;
@@ -685,16 +684,17 @@ impl<'gctx> DrainState<'gctx> {
                             .filter(|count| 0 < count.total)
                             .cloned();
                         if let Some(count) = count {
+                            let denied_warnings =
+                                warning_handling == WarningHandling::Deny && 0 < count.lints;
                             self.report_warning_count(
                                 build_runner,
                                 &unit,
                                 &count,
                                 &build_runner.bcx.rustc().workspace_wrapper,
-                                warning_handling,
+                                denied_warnings,
                             );
-                            let stop_on_warnings = warning_handling == WarningHandling::Deny
-                                && 0 < count.lints
-                                && !build_runner.bcx.build_config.keep_going;
+                            let stop_on_warnings =
+                                denied_warnings && !build_runner.bcx.build_config.keep_going;
                             if stop_on_warnings {
                                 result = Err(anyhow::format_err!(
                                     "warnings are denied by `build.warnings` configuration"
@@ -987,9 +987,17 @@ impl<'gctx> DrainState<'gctx> {
         let is_fresh = job.freshness().is_fresh();
         let rmeta_required = build_runner.rmeta_required(unit);
         let lock_manager = build_runner.lock_manager.clone();
+        let warning_handling = build_runner.bcx.gctx.warning_handling().unwrap_or_default();
 
         let doit = move |diag_dedupe| {
-            let state = JobState::new(id, messages, diag_dedupe, rmeta_required, lock_manager);
+            let state = JobState::new(
+                id,
+                messages,
+                diag_dedupe,
+                rmeta_required,
+                lock_manager,
+                warning_handling,
+            );
             state.run_to_finish(job);
         };
 
@@ -1080,7 +1088,7 @@ impl<'gctx> DrainState<'gctx> {
         unit: &Unit,
         count: &WarningCount,
         rustc_workspace_wrapper: &Option<PathBuf>,
-        warning_handling: WarningHandling,
+        denied_warnings: bool,
     ) {
         let gctx = runner.bcx.gctx;
         runner.compilation.lint_warning_count += count.lints;
@@ -1151,7 +1159,7 @@ impl<'gctx> DrainState<'gctx> {
         }
         // Errors are ignored here because it is tricky to handle them
         // correctly, and they aren't important.
-        let _ = if warning_handling == WarningHandling::Deny && 0 < count.lints {
+        let _ = if denied_warnings {
             gctx.shell().error(message)
         } else {
             gctx.shell().warn(message)

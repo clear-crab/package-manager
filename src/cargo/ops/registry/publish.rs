@@ -11,12 +11,12 @@ use std::io::Seek;
 use std::io::SeekFrom;
 use std::time::Duration;
 
-use annotate_snippets::Level;
 use anyhow::Context as _;
 use anyhow::bail;
 use cargo_credential::Operation;
 use cargo_credential::Secret;
 use cargo_util::paths;
+use cargo_util_terminal::report::Level;
 use crates_io::NewCrate;
 use crates_io::NewCrateDependency;
 use crates_io::Registry;
@@ -298,12 +298,12 @@ pub fn publish(ws: &Workspace<'_>, opts: &PublishOpts<'_>) -> CargoResult<()> {
                 let short_pkg_descriptions = package_list(to_confirm.iter().copied(), "or");
                 if plan.is_empty() {
                     let report = &[
-                        annotate_snippets::Group::with_title(
-                        annotate_snippets::Level::NOTE
+                        cargo_util_terminal::report::Group::with_title(
+                        cargo_util_terminal::report::Level::NOTE
                             .secondary_title(format!(
                                 "waiting for {short_pkg_descriptions} to be available at {source_description}"
                             ))),
-                            annotate_snippets::Group::with_title(annotate_snippets::Level::HELP.secondary_title(format!(
+                            cargo_util_terminal::report::Group::with_title(cargo_util_terminal::report::Level::HELP.secondary_title(format!(
                                 "you may press ctrl-c to skip waiting; the {crate} should be available shortly",
                                 crate = if to_confirm.len() == 1 { "crate" } else {"crates"}
                             ))),
@@ -439,19 +439,12 @@ fn wait_for_any_publish_confirmation(
 fn poll_one_package(
     registry_src: SourceId,
     pkg_id: &PackageId,
-    source: &mut dyn Source,
+    source: &dyn Source,
 ) -> CargoResult<bool> {
     let version_req = format!("={}", pkg_id.version());
     let query = Dependency::parse(pkg_id.name(), Some(&version_req), registry_src)?;
-    let summaries = loop {
-        // Exact to avoid returning all for path/git
-        match source.query_vec(&query, QueryKind::Exact) {
-            std::task::Poll::Ready(res) => {
-                break res?;
-            }
-            std::task::Poll::Pending => source.block_until_ready()?,
-        }
-    };
+    // Exact to avoid returning all for path/git
+    let summaries = crate::util::block_on(source.query_vec(&query, QueryKind::Exact))?;
     Ok(!summaries.is_empty())
 }
 
@@ -467,14 +460,7 @@ fn verify_unpublished(
         Some(&pkg.version().to_exact_req().to_string()),
         source_ids.replacement,
     )?;
-    let duplicate_query = loop {
-        match source.query_vec(&query, QueryKind::Exact) {
-            std::task::Poll::Ready(res) => {
-                break res?;
-            }
-            std::task::Poll::Pending => source.block_until_ready()?,
-        }
-    };
+    let duplicate_query = crate::util::block_on(source.query_vec(&query, QueryKind::Exact))?;
     if !duplicate_query.is_empty() {
         // Move the registry error earlier in the publish process.
         // Since dry-run wouldn't talk to the registry to get the error, we downgrade it to a

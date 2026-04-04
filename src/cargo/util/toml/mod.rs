@@ -1,4 +1,4 @@
-use annotate_snippets::{AnnotationKind, Group, Level, Snippet};
+use cargo_util_terminal::report::{AnnotationKind, Group, Level, Snippet};
 use std::borrow::Cow;
 use std::cell::OnceCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -2591,6 +2591,18 @@ pub fn validate_profile(
                 "`lto` setting of string `\"{arg}\"` for `{name}` profile is not \
                      a valid setting, must be a boolean (`true`/`false`) or a string \
                     (`\"thin\"`/`\"fat\"`/`\"off\"`) or omitted.",
+            );
+        }
+    }
+
+    if let Some(frame_pointers) = &root.frame_pointers {
+        if frame_pointers != "force-on"
+            && frame_pointers != "force-off"
+            && frame_pointers != "default"
+        {
+            bail!(
+                "`frame-pointers` setting of `{frame_pointers}` is not a valid setting, \
+                     must be `\"force-on\"`, `\"force-off\"`, or `\"default\"`.",
             );
         }
     }
