@@ -633,9 +633,10 @@ fn normalize_package_toml<'a>(
             if is_embedded {
                 const DEFAULT_EDITION: crate::core::features::Edition =
                     crate::core::features::Edition::LATEST_STABLE;
-                let _ = gctx.shell().warn(format_args!(
+                let report = [Group::with_title(Level::WARNING.secondary_title(format!(
                     "`package.edition` is unspecified, defaulting to the latest edition (currently `{DEFAULT_EDITION}`)"
-                ));
+                )))];
+                let _ = gctx.shell().print_report(&report, true);
                 Some(manifest::InheritableField::Value(
                     DEFAULT_EDITION.to_string(),
                 ))
@@ -2362,21 +2363,17 @@ fn to_dependency_source_id<P: ResolveToPath + Clone>(
         orig.registry.as_deref(),
         orig.registry_index.as_ref(),
     ) {
-        (Some(_git), _, Some(_registry), _) | (Some(_git), _, _, Some(_registry)) => bail!(
-            "dependency ({name_in_toml}) specification is ambiguous. \
-                 Only one of `git` or `registry` is allowed.",
-        ),
-        (_, _, Some(_registry), Some(_registry_index)) => bail!(
-            "dependency ({name_in_toml}) specification is ambiguous. \
-                 Only one of `registry` or `registry-index` is allowed.",
-        ),
-        (Some(_git), Some(_path), None, None) => {
+        (Some(_git), Some(_path), _, _) => {
             bail!(
                 "dependency ({name_in_toml}) specification is ambiguous. \
                      Only one of `git` or `path` is allowed.",
             );
         }
-        (Some(git), None, None, None) => {
+        (_, _, Some(_registry), Some(_registry_index)) => bail!(
+            "dependency ({name_in_toml}) specification is ambiguous. \
+                 Only one of `registry` or `registry-index` is allowed.",
+        ),
+        (Some(git), None, _, _) => {
             let n_details = [&orig.branch, &orig.tag, &orig.rev]
                 .iter()
                 .filter(|d| d.is_some())
@@ -2717,10 +2714,8 @@ supported tools: {}",
                 for config_name in config.keys() {
                     // manually report unused manifest key warning since we collect all the "extra"
                     // keys and values inside the config table
-                    //
-                    // except for `rust.unexpected_cfgs.check-cfg` which is used by rustc/rustdoc
-                    if !(tool == "rust" && name == "unexpected_cfgs" && config_name == "check-cfg")
-                    {
+                    let expected = EXPECTED_LINT_CONFIG.contains(&(tool, name, config_name));
+                    if !expected {
                         let message =
                             format!("unused manifest key: `lints.{tool}.{name}.{config_name}`");
                         warnings.push(message);
@@ -2732,6 +2727,12 @@ supported tools: {}",
 
     Ok(())
 }
+
+static EXPECTED_LINT_CONFIG: &[(&str, &str, &str)] = &[
+    ("cargo", "unused_dependencies", "ignore"),
+    // forwarded to rustc/rustdoc
+    ("rust", "unexpected_cfgs", "check-cfg"),
+];
 
 fn warn_for_cargo_lint_feature(gctx: &GlobalContext, warnings: &mut Vec<String>) {
     use std::fmt::Write as _;

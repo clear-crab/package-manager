@@ -34,6 +34,7 @@ use crate::lints::rules::non_snake_case_features;
 use crate::lints::rules::non_snake_case_packages;
 use crate::lints::rules::redundant_homepage;
 use crate::lints::rules::redundant_readme;
+use crate::lints::rules::unused_build_dependencies_no_build_rs;
 use crate::lints::rules::unused_workspace_dependencies;
 use crate::lints::rules::unused_workspace_package_fields;
 use crate::ops;
@@ -46,8 +47,8 @@ use crate::util::errors::{CargoResult, ManifestError};
 use crate::util::interning::InternedString;
 use crate::util::toml::{InheritableFields, read_manifest};
 use crate::util::{
-    Filesystem, GlobalContext, IntoUrl, context::CargoResolverConfig, context::ConfigRelativePath,
-    context::IncompatibleRustVersions,
+    Filesystem, GlobalContext, IntoUrl, closest_msg, context::CargoResolverConfig,
+    context::ConfigRelativePath, context::IncompatibleRustVersions,
 };
 
 use cargo_util::paths;
@@ -1389,6 +1390,13 @@ impl<'gctx> Workspace<'gctx> {
             )?;
             non_kebab_case_features(pkg, &path, &cargo_lints, &mut run_error_count, self.gctx)?;
             non_snake_case_features(pkg, &path, &cargo_lints, &mut run_error_count, self.gctx)?;
+            unused_build_dependencies_no_build_rs(
+                pkg,
+                &path,
+                &cargo_lints,
+                &mut run_error_count,
+                self.gctx,
+            )?;
             redundant_readme(pkg, &path, &cargo_lints, &mut run_error_count, self.gctx)?;
             redundant_homepage(pkg, &path, &cargo_lints, &mut run_error_count, self.gctx)?;
             missing_lints_inheritance(
@@ -1882,7 +1890,19 @@ impl<'gctx> Workspace<'gctx> {
                 && !cli_features.all_features
                 && cli_features.uses_default_features)
             {
-                bail!("cannot specify features for packages outside of workspace");
+                let hint = specs
+                    .iter()
+                    .map(|spec| {
+                        closest_msg(
+                            spec.name(),
+                            self.members(),
+                            |m| m.name().as_str(),
+                            "workspace member",
+                        )
+                    })
+                    .find(|msg| !msg.is_empty())
+                    .unwrap_or_default();
+                bail!("cannot specify features for packages outside of workspace{hint}");
             }
             // Add all members from the workspace so we can ensure `-p nonmember`
             // is in the resolve graph.
