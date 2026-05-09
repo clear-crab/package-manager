@@ -7,20 +7,21 @@ use cargo_util_terminal::report::Level;
 use cargo_util_terminal::report::Origin;
 use cargo_util_terminal::report::Patch;
 use cargo_util_terminal::report::Snippet;
+use tracing::instrument;
 
+use super::RESTRICTION;
 use crate::CargoResult;
 use crate::GlobalContext;
 use crate::core::Package;
-use crate::lints::Lint;
-use crate::lints::LintLevel;
-use crate::lints::LintLevelSource;
-use crate::lints::RESTRICTION;
-use crate::lints::get_key_value_span;
-use crate::lints::rel_cwd_manifest_path;
+use crate::diagnostics::Lint;
+use crate::diagnostics::LintLevel;
+use crate::diagnostics::LintLevelSource;
+use crate::diagnostics::get_key_value_span;
+use crate::diagnostics::rel_cwd_manifest_path;
 
 pub static LINT: &Lint = &Lint {
-    name: "non_snake_case_features",
-    desc: "features should have a snake-case name",
+    name: "non_kebab_case_features",
+    desc: "features should have a kebab-case name",
     primary_group: &RESTRICTION,
     msrv: None,
     feature_gate: None,
@@ -28,7 +29,7 @@ pub static LINT: &Lint = &Lint {
         r#"
 ### What it does
 
-Detect feature names that are not snake-case.
+Detect feature names that are not kebab-case.
 
 ### Why it is bad
 
@@ -42,20 +43,21 @@ Users would expect that a feature tightly coupled to a dependency would match th
 
 ```toml
 [features]
-foo-bar = []
+foo_bar = []
 ```
 
 Should be written as:
 
 ```toml
 [features]
-foo_bar = []
+foo-bar = []
 ```
 "#,
     ),
 };
 
-pub fn non_snake_case_features(
+#[instrument(skip_all)]
+pub fn non_kebab_case_features(
     pkg: &Package,
     manifest_path: &Path,
     cargo_lints: &TomlToolLints,
@@ -77,7 +79,7 @@ pub fn non_snake_case_features(
     lint_package(pkg, &manifest_path, lint_level, source, error_count, gctx)
 }
 
-pub fn lint_package(
+fn lint_package(
     pkg: &Package,
     manifest_path: &str,
     lint_level: LintLevel,
@@ -87,8 +89,8 @@ pub fn lint_package(
 ) -> CargoResult<()> {
     for original_name in pkg.summary().features().keys() {
         let original_name = &**original_name;
-        let snake_case = heck::ToSnakeCase::to_snake_case(original_name);
-        if snake_case == original_name {
+        let kebab_case = heck::ToKebabCase::to_kebab_case(original_name);
+        if kebab_case == original_name {
             continue;
         }
 
@@ -134,12 +136,12 @@ pub fn lint_package(
             && let Some(span) = get_key_value_span(document, &["features", original_name])
         {
             let mut help = Group::with_title(Level::HELP.secondary_title(
-                "to change the feature name to snake case, convert the `features` key",
+                "to change the feature name to kebab case, convert the `features` key",
             ));
             help = help.element(
                 Snippet::source(contents)
                     .path(manifest_path)
-                    .patch(Patch::new(span.key, snake_case.as_str())),
+                    .patch(Patch::new(span.key, kebab_case.as_str())),
             );
             report.push(help);
         }

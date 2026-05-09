@@ -6,16 +6,17 @@ use cargo_util_terminal::report::Group;
 use cargo_util_terminal::report::Level;
 use cargo_util_terminal::report::Origin;
 use cargo_util_terminal::report::Snippet;
+use tracing::instrument;
 
+use super::TEST_DUMMY_UNSTABLE;
 use crate::CargoResult;
 use crate::GlobalContext;
 use crate::core::Feature;
 use crate::core::Package;
-use crate::lints::Lint;
-use crate::lints::LintLevel;
-use crate::lints::TEST_DUMMY_UNSTABLE;
-use crate::lints::get_key_value_span;
-use crate::lints::rel_cwd_manifest_path;
+use crate::diagnostics::Lint;
+use crate::diagnostics::LintLevel;
+use crate::diagnostics::get_key_value_span;
+use crate::diagnostics::rel_cwd_manifest_path;
 
 /// This lint is only to be used for testing purposes
 pub static LINT: &Lint = &Lint {
@@ -27,6 +28,7 @@ pub static LINT: &Lint = &Lint {
     docs: None,
 };
 
+#[instrument(skip_all)]
 pub fn check_im_a_teapot(
     pkg: &Package,
     path: &Path,

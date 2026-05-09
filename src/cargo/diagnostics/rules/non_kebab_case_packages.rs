@@ -7,20 +7,21 @@ use cargo_util_terminal::report::Level;
 use cargo_util_terminal::report::Origin;
 use cargo_util_terminal::report::Patch;
 use cargo_util_terminal::report::Snippet;
+use tracing::instrument;
 
+use super::RESTRICTION;
 use crate::CargoResult;
 use crate::GlobalContext;
 use crate::core::Package;
-use crate::lints::Lint;
-use crate::lints::LintLevel;
-use crate::lints::LintLevelSource;
-use crate::lints::RESTRICTION;
-use crate::lints::get_key_value_span;
-use crate::lints::rel_cwd_manifest_path;
+use crate::diagnostics::Lint;
+use crate::diagnostics::LintLevel;
+use crate::diagnostics::LintLevelSource;
+use crate::diagnostics::get_key_value_span;
+use crate::diagnostics::rel_cwd_manifest_path;
 
 pub static LINT: &Lint = &Lint {
-    name: "non_snake_case_packages",
-    desc: "packages should have a snake-case name",
+    name: "non_kebab_case_packages",
+    desc: "packages should have a kebab-case name",
     primary_group: &RESTRICTION,
     msrv: None,
     feature_gate: None,
@@ -28,7 +29,7 @@ pub static LINT: &Lint = &Lint {
         r#"
 ### What it does
 
-Detect package names that are not snake-case.
+Detect package names that are not kebab-case.
 
 ### Why it is bad
 
@@ -55,7 +56,8 @@ name = "foo-bar"
     ),
 };
 
-pub fn non_snake_case_packages(
+#[instrument(skip_all)]
+pub fn non_kebab_case_packages(
     pkg: &Package,
     manifest_path: &Path,
     cargo_lints: &TomlToolLints,
@@ -77,7 +79,7 @@ pub fn non_snake_case_packages(
     lint_package(pkg, &manifest_path, lint_level, source, error_count, gctx)
 }
 
-pub fn lint_package(
+fn lint_package(
     pkg: &Package,
     manifest_path: &str,
     lint_level: LintLevel,
@@ -88,8 +90,8 @@ pub fn lint_package(
     let manifest = pkg.manifest();
 
     let original_name = &*manifest.name();
-    let snake_case = heck::ToSnakeCase::to_snake_case(original_name);
-    if snake_case == original_name {
+    let kebab_case = heck::ToKebabCase::to_kebab_case(original_name);
+    if kebab_case == original_name {
         return Ok(());
     }
 
@@ -119,12 +121,12 @@ pub fn lint_package(
     {
         let mut help =
             Group::with_title(Level::HELP.secondary_title(
-                "to change the package name to snake case, convert `package.name`",
+                "to change the package name to kebab case, convert `package.name`",
             ));
         help = help.element(
             Snippet::source(contents)
                 .path(manifest_path)
-                .patch(Patch::new(span.value, format!("\"{snake_case}\""))),
+                .patch(Patch::new(span.value, format!("\"{kebab_case}\""))),
         );
         report.push(help);
     } else {
@@ -140,8 +142,8 @@ pub fn lint_package(
             })
             .unwrap_or(0);
         let help = Level::HELP
-            .secondary_title("to change the package name to snake case, convert the file stem")
-            .element(Snippet::source(display_path).patch(Patch::new(start..end, snake_case)));
+            .secondary_title("to change the package name to kebab case, convert the file stem")
+            .element(Snippet::source(display_path).patch(Patch::new(start..end, kebab_case)));
         report.push(help);
     }
 

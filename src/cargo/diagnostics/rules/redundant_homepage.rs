@@ -8,16 +8,17 @@ use cargo_util_terminal::report::Level;
 use cargo_util_terminal::report::Origin;
 use cargo_util_terminal::report::Patch;
 use cargo_util_terminal::report::Snippet;
+use tracing::instrument;
 
+use super::STYLE;
 use crate::CargoResult;
 use crate::GlobalContext;
 use crate::core::Package;
-use crate::lints::Lint;
-use crate::lints::LintLevel;
-use crate::lints::LintLevelSource;
-use crate::lints::STYLE;
-use crate::lints::get_key_value_span;
-use crate::lints::rel_cwd_manifest_path;
+use crate::diagnostics::Lint;
+use crate::diagnostics::LintLevel;
+use crate::diagnostics::LintLevelSource;
+use crate::diagnostics::get_key_value_span;
+use crate::diagnostics::rel_cwd_manifest_path;
 
 pub static LINT: &Lint = &Lint {
     name: "redundant_homepage",
@@ -59,6 +60,7 @@ repository = "https://github.com/rust-lang/cargo/"
     ),
 };
 
+#[instrument(skip_all)]
 pub fn redundant_homepage(
     pkg: &Package,
     manifest_path: &Path,
@@ -81,7 +83,7 @@ pub fn redundant_homepage(
     lint_package(pkg, &manifest_path, lint_level, source, error_count, gctx)
 }
 
-pub fn lint_package(
+fn lint_package(
     pkg: &Package,
     manifest_path: &str,
     lint_level: LintLevel,

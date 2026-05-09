@@ -7,18 +7,19 @@ use cargo_util_terminal::report::Level;
 use cargo_util_terminal::report::Origin;
 use cargo_util_terminal::report::Patch;
 use cargo_util_terminal::report::Snippet;
+use tracing::instrument;
 
+use super::STYLE;
 use crate::CargoResult;
 use crate::GlobalContext;
 use crate::core::Package;
 use crate::core::Workspace;
-use crate::lints::AsIndex;
-use crate::lints::Lint;
-use crate::lints::LintLevel;
-use crate::lints::LintLevelSource;
-use crate::lints::STYLE;
-use crate::lints::get_key_value_span;
-use crate::lints::rel_cwd_manifest_path;
+use crate::diagnostics::AsIndex;
+use crate::diagnostics::Lint;
+use crate::diagnostics::LintLevel;
+use crate::diagnostics::LintLevelSource;
+use crate::diagnostics::get_key_value_span;
+use crate::diagnostics::rel_cwd_manifest_path;
 
 pub static LINT: &Lint = &Lint {
     name: "non_kebab_case_bins",
@@ -61,6 +62,7 @@ name = "foo-bar"
     ),
 };
 
+#[instrument(skip_all)]
 pub fn non_kebab_case_bins(
     ws: &Workspace<'_>,
     pkg: &Package,
@@ -92,7 +94,7 @@ pub fn non_kebab_case_bins(
     )
 }
 
-pub fn lint_package(
+fn lint_package(
     ws: &Workspace<'_>,
     pkg: &Package,
     manifest_path: &str,

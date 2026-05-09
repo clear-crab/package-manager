@@ -8,16 +8,17 @@ use cargo_util_terminal::report::Origin;
 use cargo_util_terminal::report::Patch;
 use cargo_util_terminal::report::Snippet;
 use indexmap::IndexSet;
+use tracing::instrument;
 
+use super::SUSPICIOUS;
 use crate::CargoResult;
 use crate::GlobalContext;
 use crate::core::MaybePackage;
 use crate::core::Workspace;
-use crate::lints::Lint;
-use crate::lints::LintLevel;
-use crate::lints::SUSPICIOUS;
-use crate::lints::get_key_value_span;
-use crate::lints::rel_cwd_manifest_path;
+use crate::diagnostics::Lint;
+use crate::diagnostics::LintLevel;
+use crate::diagnostics::get_key_value_span;
+use crate::diagnostics::rel_cwd_manifest_path;
 
 pub static LINT: &Lint = &Lint {
     name: "unused_workspace_package_fields",
@@ -45,6 +46,7 @@ name = "foo"
     ),
 };
 
+#[instrument(skip_all)]
 pub fn unused_workspace_package_fields(
     ws: &Workspace<'_>,
     maybe_pkg: &MaybePackage,

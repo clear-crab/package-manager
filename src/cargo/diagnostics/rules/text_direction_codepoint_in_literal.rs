@@ -12,15 +12,16 @@ use toml_parser::decoder::Encoding;
 use toml_parser::parser::Event;
 use toml_parser::parser::EventKind;
 use toml_parser::parser::EventReceiver;
+use tracing::instrument;
 
+use super::CORRECTNESS;
 use crate::CargoResult;
 use crate::GlobalContext;
 use crate::core::MaybePackage;
-use crate::lints::CORRECTNESS;
-use crate::lints::Lint;
-use crate::lints::LintLevel;
-use crate::lints::ManifestFor;
-use crate::lints::rel_cwd_manifest_path;
+use crate::diagnostics::Lint;
+use crate::diagnostics::LintLevel;
+use crate::diagnostics::ManifestFor;
+use crate::diagnostics::rel_cwd_manifest_path;
 
 pub static LINT: &Lint = &Lint {
     name: "text_direction_codepoint_in_literal",
@@ -46,6 +47,7 @@ by default we deny their use.
     ),
 };
 
+#[instrument(skip_all)]
 pub fn text_direction_codepoint_in_literal(
     manifest: ManifestFor<'_>,
     manifest_path: &Path,
