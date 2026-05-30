@@ -51,7 +51,7 @@ pub mod timings;
 mod unit;
 pub mod unit_dependencies;
 pub mod unit_graph;
-mod unused_deps;
+pub mod unused_deps;
 
 use std::borrow::Cow;
 use std::cell::OnceCell;
@@ -814,6 +814,9 @@ fn prepare_rustc(build_runner: &BuildRunner<'_, '_>, unit: &Unit) -> CargoResult
     }
     if build_runner.bcx.gctx.cli_unstable().checksum_freshness {
         base.arg("-Z").arg("checksum-hash-algorithm=blake3");
+    }
+    if gctx.shell().verbosity() == Verbosity::Verbose && unit.is_local() {
+        base.arg("--verbose");
     }
 
     if is_primary {
