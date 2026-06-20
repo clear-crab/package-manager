@@ -9,6 +9,7 @@ use crate::util::errors::CargoResult;
 use crate::util::{GlobalContext, OptVersionReq, VersionExt};
 use anyhow::Error;
 
+use super::VersionPreferences;
 use super::context::ResolverContext;
 use super::types::{ConflictMap, ConflictReason};
 
@@ -74,6 +75,7 @@ impl From<(PackageId, ConflictReason)> for ActivateError {
 pub(super) fn activation_error(
     resolver_ctx: &ResolverContext,
     registry: &impl Registry,
+    version_prefs: &VersionPreferences,
     parent: &Summary,
     dep: &Dependency,
     conflicting_activations: &ConflictMap,
@@ -234,6 +236,8 @@ pub(super) fn activation_error(
     // give an error message that nothing was found.
     let mut msg = String::new();
     let mut hints = String::new();
+    // Whether any candidate was rejected for being newer than `min-publish-age`,
+    let mut has_too_new = false;
     if let Some(version_candidates) = rejected_versions(registry, dep) {
         let version_candidates = match version_candidates {
             Ok(c) => c,
@@ -255,9 +259,20 @@ pub(super) fn activation_error(
         for candidate in version_candidates {
             match candidate {
                 IndexSummary::Candidate(summary) => {
-                    // HACK: If this was a real candidate, we wouldn't hit this case.
-                    // so it must be a patch which get normalized to being a candidate
-                    let _ = writeln!(&mut msg, "  version {} is unavailable", summary.version());
+                    if let Some(violation) = version_prefs.too_new(&summary) {
+                        has_too_new = true;
+                        let note = violation.note();
+                        let _ = writeln!(
+                            &mut msg,
+                            "  version {} is too new ({note})",
+                            summary.version(),
+                        );
+                    } else {
+                        // HACK: If this was a real candidate, we wouldn't hit this case.
+                        // so it must be a patch which get normalized to being a candidate
+                        let _ =
+                            writeln!(&mut msg, "  version {} is unavailable", summary.version());
+                    }
                 }
                 IndexSummary::Yanked(summary) => {
                     let _ = writeln!(&mut msg, "  version {} is yanked", summary.version());
@@ -410,6 +425,30 @@ pub(super) fn activation_error(
         "required by {}",
         describe_path_in_context(resolver_ctx, &parent.package_id()),
     );
+
+    if has_too_new {
+        let downgrade_to =
+            alt_versions(registry, dep)
+                .and_then(|r| r.ok())
+                .and_then(|candidates| {
+                    candidates
+                        .into_iter()
+                        .find(|s| version_prefs.too_new(s).is_none())
+                });
+        if let Some(summary) = downgrade_to {
+            let _ = write!(
+                &mut hints,
+                "\nhelp: to preserve the min-publish-age, \
+                 downgrade the requirement to \"{}\"",
+                summary.version(),
+            );
+        }
+        let _ = write!(
+            &mut hints,
+            "\nhelp: to use too-new packages anyways, \
+             re-resolve with `CARGO_RESOLVER_INCOMPATIBLE_PUBLISH_AGE=allow`",
+        );
+    }
 
     if let Some(gctx) = gctx {
         if let Some(offline_flag) = gctx.offline_flag() {

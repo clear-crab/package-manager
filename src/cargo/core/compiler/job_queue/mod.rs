@@ -850,6 +850,7 @@ impl<'gctx> DrainState<'gctx> {
                 &mut global_stats,
             ));
             errors.count += global_stats.error_count();
+            build_runner.compilation.lint_warning_count += global_stats.lint_warning_count();
         }
 
         let profile_name = build_runner.bcx.build_config.requested_profile;
@@ -870,7 +871,7 @@ impl<'gctx> DrainState<'gctx> {
             opt_type += " + debuginfo";
         }
 
-        let time_elapsed = util::elapsed(build_runner.bcx.gctx.creation_time().elapsed());
+        let time_elapsed = util::elapsed(build_runner.bcx.gctx.invocation_instant().elapsed());
         if let Err(e) = self
             .timings
             .finished(build_runner, &errors.to_error())

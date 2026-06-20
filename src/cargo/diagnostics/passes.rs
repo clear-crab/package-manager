@@ -12,6 +12,7 @@ use crate::diagnostics::Lint;
 use crate::diagnostics::LintLevel;
 use crate::diagnostics::LintLevelProduct;
 use crate::diagnostics::ManifestFor;
+use crate::diagnostics::PassOutput;
 use crate::diagnostics::ScopedDiagnosticStats;
 
 #[derive(Clone)]
@@ -39,8 +40,13 @@ pub enum ParsePassRule<'r> {
     },
 }
 
-type FnDiagnosticManifest =
-    fn(ManifestFor<'_>, &Path, &mut ScopedDiagnosticStats<'_>, &GlobalContext) -> CargoResult<()>;
+type FnDiagnosticManifest = fn(
+    &Workspace<'_>,
+    ManifestFor<'_>,
+    &Path,
+    &mut ScopedDiagnosticStats<'_>,
+    &GlobalContext,
+) -> CargoResult<()>;
 
 type FnDiagnosticWorkspace = fn(
     &Workspace<'_>,
@@ -59,6 +65,7 @@ type FnDiagnosticPackage = fn(
 ) -> CargoResult<()>;
 
 type FnLintManifest = fn(
+    &Workspace<'_>,
     manifest: ManifestFor<'_>,
     manifest_path: &Path,
     LintLevelProduct,
@@ -87,19 +94,35 @@ type FnLintPackage = fn(
 pub fn emit_parse_diagnostics(
     workspace: &Workspace<'_>,
     rules: &[ParsePassRule<'_>],
-) -> CargoResult<()> {
+) -> CargoResult<PassOutput> {
     let mut stats = GlobalDiagnosticStats::new();
 
-    emit_parse_ws_diagnostics(workspace, rules, &mut stats)?;
+    if is_local_workspace(workspace) {
+        emit_parse_ws_diagnostics(workspace, rules, &mut stats)?;
+    }
 
     for maybe_pkg in workspace.loaded_maybe() {
         if let MaybePackage::Package(pkg) = maybe_pkg {
-            let path = pkg.manifest_path();
-            emit_parse_pkg_diagnostics(workspace, pkg, &path, rules, &mut stats)?;
+            if is_local_package(pkg) {
+                let path = pkg.manifest_path();
+                emit_parse_pkg_diagnostics(workspace, pkg, &path, rules, &mut stats)?;
+            }
         }
     }
 
     stats.ok()
+}
+
+fn is_local_workspace(workspace: &Workspace<'_>) -> bool {
+    workspace
+        .root_maybe()
+        .as_package()
+        .map(is_local_package)
+        .unwrap_or_else(|| workspace.members().any(is_local_package))
+}
+
+fn is_local_package(pkg: &Package) -> bool {
+    pkg.package_id().source_id().is_path()
 }
 
 fn emit_parse_pkg_diagnostics(
@@ -127,14 +150,21 @@ fn emit_parse_pkg_diagnostics(
         match rule {
             ParsePassRule::DiagnosticManifest { rule } => {
                 let manifest = pkg.into();
-                rule(manifest, &path, &mut pkg_stats, workspace.gctx())?;
+                rule(workspace, manifest, &path, &mut pkg_stats, workspace.gctx())?;
             }
             ParsePassRule::LintManifest { rule, lint } => {
                 if workspace.gctx().cli_unstable().cargo_lints {
                     let manifest: ManifestFor<'_> = pkg.into();
-                    let level = manifest.lint_level(&cargo_lints, lint);
+                    let level = manifest.lint_level(&cargo_lints, lint, workspace.gctx());
                     if level.level != LintLevel::Allow {
-                        rule(manifest, &path, level, &mut pkg_stats, workspace.gctx())?;
+                        rule(
+                            workspace,
+                            manifest,
+                            &path,
+                            level,
+                            &mut pkg_stats,
+                            workspace.gctx(),
+                        )?;
                     }
                 }
             }
@@ -148,6 +178,7 @@ fn emit_parse_pkg_diagnostics(
                         &cargo_lints,
                         pkg.rust_version(),
                         pkg.manifest().unstable_features(),
+                        workspace.gctx(),
                     );
 
                     if level.level != LintLevel::Allow {
@@ -203,6 +234,7 @@ fn emit_parse_ws_diagnostics(
             ParsePassRule::DiagnosticManifest { rule } => {
                 let manifest = (workspace, workspace.root_maybe()).into();
                 rule(
+                    workspace,
                     manifest,
                     workspace.root_manifest(),
                     &mut pkg_stats,
@@ -212,9 +244,10 @@ fn emit_parse_ws_diagnostics(
             ParsePassRule::LintManifest { rule, lint } => {
                 if workspace.gctx().cli_unstable().cargo_lints {
                     let manifest: ManifestFor<'_> = (workspace, workspace.root_maybe()).into();
-                    let level = manifest.lint_level(&cargo_lints, lint);
+                    let level = manifest.lint_level(&cargo_lints, lint, workspace.gctx());
                     if level.level != LintLevel::Allow {
                         rule(
+                            workspace,
                             manifest,
                             workspace.root_manifest(),
                             level,
@@ -239,6 +272,7 @@ fn emit_parse_ws_diagnostics(
                         &cargo_lints,
                         workspace.lowest_rust_version(),
                         workspace.root_maybe().unstable_features(),
+                        workspace.gctx(),
                     );
                     if level.level != LintLevel::Allow {
                         rule(
