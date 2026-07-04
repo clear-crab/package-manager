@@ -61,7 +61,7 @@ use std::ffi::{OsStr, OsString};
 use std::fmt::Display;
 use std::fs::{self, File};
 use std::io::{BufRead, BufWriter, Write};
-use std::ops::Range;
+use std::ops::{Deref, Range};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 
@@ -1148,19 +1148,38 @@ fn append_crate_version_flag(unit: &Unit, rustdoc: &mut ProcessBuilder) {
         .arg(unit.pkg.version().to_string());
 }
 
+enum CapLints {
+    Allow,
+    Warn,
+}
+
+fn compute_cap_lints(bcx: &BuildContext<'_, '_>, unit: &Unit) -> Option<CapLints> {
+    // If this is an upstream dep we don't want warnings from, turn off all
+    // lints.
+    if !unit.show_warnings(bcx.gctx) {
+        Some(CapLints::Allow)
+    // If this is an upstream dep but we *do* want warnings, make sure that they
+    // don't fail compilation.
+    } else if !unit.is_local() {
+        Some(CapLints::Warn)
+    } else {
+        None
+    }
+}
+
 /// Adds [`--cap-lints`] to the command to execute.
 ///
 /// [`--cap-lints`]: https://doc.rust-lang.org/nightly/rustc/lints/levels.html#capping-lints
 fn add_cap_lints(bcx: &BuildContext<'_, '_>, unit: &Unit, cmd: &mut ProcessBuilder) {
-    // If this is an upstream dep we don't want warnings from, turn off all
-    // lints.
-    if !unit.show_warnings(bcx.gctx) {
-        cmd.arg("--cap-lints").arg("allow");
-
-    // If this is an upstream dep but we *do* want warnings, make sure that they
-    // don't fail compilation.
-    } else if !unit.is_local() {
-        cmd.arg("--cap-lints").arg("warn");
+    if let Some(cap_lints) = compute_cap_lints(bcx, unit) {
+        match cap_lints {
+            CapLints::Allow => {
+                cmd.arg("--cap-lints").arg("allow");
+            }
+            CapLints::Warn => {
+                cmd.arg("--cap-lints").arg("warn");
+            }
+        }
     }
 }
 
@@ -1364,7 +1383,14 @@ fn build_base_args(
         trim_paths_args(cmd, build_runner, unit, &trim_paths)?;
     }
 
-    cmd.args(unit.pkg.manifest().lint_rustflags());
+    match compute_cap_lints(bcx, unit) {
+        None | Some(CapLints::Warn) => {
+            cmd.args(unit.pkg.manifest().lint_rustflags());
+        }
+        // If we pass --cap-lints=allow, there is no point in making the CLI larger by including
+        // potentially a lot of --warn lint flags.
+        Some(CapLints::Allow) => {}
+    }
     cmd.args(&profile_rustflags);
 
     // `-C overflow-checks` is implied by the setting of `-C debug-assertions`,
@@ -2111,7 +2137,7 @@ struct ManifestErrorContext {
     /// The path to the manifest.
     path: PathBuf,
     /// The locations of various spans within the manifest.
-    spans: Option<toml::Spanned<toml::de::DeTable<'static>>>,
+    spans: Option<Arc<toml::Spanned<toml::de::DeTable<'static>>>>,
     /// The raw manifest contents.
     contents: Option<String>,
     /// A lookup for all the unambiguous renamings, mapping from the original package
@@ -2491,7 +2517,7 @@ impl ManifestErrorContext {
         let bcx = build_runner.bcx;
         ManifestErrorContext {
             path: unit.pkg.manifest_path().to_owned(),
-            spans: unit.pkg.manifest().document().cloned(),
+            spans: unit.pkg.manifest().document_rc(),
             contents: unit.pkg.manifest().contents().map(String::from),
             requested_kinds: bcx.target_data.requested_kinds().to_owned(),
             host_name: bcx.rustc().host,
@@ -2560,6 +2586,7 @@ impl ManifestErrorContext {
         // [target.'cfg(something)'.dependencies]. We filter out target tables
         // that don't match a requested target or a requested cfg.
         if let Some(target) = spans
+            .deref()
             .as_ref()
             .get("target")
             .and_then(|t| t.as_ref().as_table())
