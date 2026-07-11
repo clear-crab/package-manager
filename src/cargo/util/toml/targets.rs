@@ -10,7 +10,7 @@
 //! It is a bit tricky because we need match explicit information from `Cargo.toml`
 //! with implicit info in directory layout.
 
-use std::collections::{HashMap, HashSet};
+use crate::util::data_structures::{HashMap, HashSet};
 use std::fmt::Write;
 use std::fs::{self, DirEntry};
 use std::path::{Path, PathBuf};
@@ -368,7 +368,7 @@ fn to_bin_targets(
 
     validate_unique_names(&bins, TARGET_KIND_HUMAN_BIN)?;
 
-    let mut result = Vec::new();
+    let mut result = Vec::with_capacity(bins.len());
     for bin in bins {
         let path = package_root.join(&bin.path.as_ref().expect("previously normalized").0);
         let mut target = Target::bin_target(
@@ -442,7 +442,7 @@ fn to_example_targets(
 ) -> CargoResult<Vec<Target>> {
     validate_unique_names(&targets, TARGET_KIND_EXAMPLE)?;
 
-    let mut result = Vec::new();
+    let mut result = Vec::with_capacity(targets.len());
     for toml in targets {
         let path = package_root.join(&toml.path.as_ref().expect("previously normalized").0);
         let crate_types = match toml.crate_types() {
@@ -500,7 +500,7 @@ fn to_test_targets(
 ) -> CargoResult<Vec<Target>> {
     validate_unique_names(&targets, TARGET_KIND_TEST)?;
 
-    let mut result = Vec::new();
+    let mut result = Vec::with_capacity(targets.len());
     for toml in targets {
         let path = package_root.join(&toml.path.as_ref().expect("previously normalized").0);
         let mut target = Target::test_target(
@@ -568,7 +568,7 @@ fn to_bench_targets(
 ) -> CargoResult<Vec<Target>> {
     validate_unique_names(&targets, TARGET_KIND_BENCH)?;
 
-    let mut result = Vec::new();
+    let mut result = Vec::with_capacity(targets.len());
     for toml in targets {
         let path = package_root.join(&toml.path.as_ref().expect("previously normalized").0);
         let mut target = Target::bench_target(
@@ -806,8 +806,8 @@ fn toml_targets_and_inferred(
             let target_path =
                 |target: &TomlTarget| target.path.clone().map(|p| package_root.join(p.0));
 
-            let mut seen_names = HashSet::new();
-            let mut seen_paths = HashSet::new();
+            let mut seen_names = HashSet::default();
+            let mut seen_paths = HashSet::default();
             for target in targets.iter() {
                 seen_names.insert(target.name.clone());
                 seen_paths.insert(target_path(target));
@@ -889,7 +889,7 @@ fn inferred_to_toml_targets(inferred: &[(String, PathBuf)]) -> Vec<TomlTarget> {
 
 /// Will check a list of toml targets, and make sure the target names are unique within a vector.
 fn validate_unique_names(targets: &[TomlTarget], target_kind: &str) -> CargoResult<()> {
-    let mut seen = HashSet::new();
+    let mut seen = HashSet::default();
     for name in targets.iter().map(|e| name_or_panic(e)) {
         if !seen.insert(name) {
             anyhow::bail!(
@@ -905,7 +905,7 @@ fn validate_unique_names(targets: &[TomlTarget], target_kind: &str) -> CargoResu
 
 /// Will check a list of build scripts, and make sure script file stems are unique within a vector.
 fn validate_unique_build_scripts(scripts: &[String]) -> CargoResult<()> {
-    let mut seen = HashMap::new();
+    let mut seen = HashMap::default();
     for script in scripts {
         let stem = Path::new(script).file_stem().unwrap().to_str().unwrap();
         seen.entry(stem)

@@ -1,11 +1,11 @@
 use std::path::Path;
 
+use crate::util::data_structures::IndexSet;
 use cargo_util_terminal::report::AnnotationKind;
 use cargo_util_terminal::report::Group;
 use cargo_util_terminal::report::Level;
 use cargo_util_terminal::report::Origin;
 use cargo_util_terminal::report::Snippet;
-use indexmap::IndexSet;
 use tracing::instrument;
 
 use super::SUSPICIOUS;
@@ -30,7 +30,7 @@ pub static LINT: &Lint = &Lint {
 ### What it does
 Checks for any fields in `[workspace.package]` that has not been inherited
 
-### Why it is bad
+### Why is this bad?
 They can give the false impression that these fields are used
 
 ### Example
@@ -68,7 +68,7 @@ pub(crate) fn lint_workspace(
         .flat_map(|d| d.keys())
         .collect();
 
-    let mut inherited_fields = IndexSet::new();
+    let mut inherited_fields = IndexSet::default();
     for member in ws.members() {
         inherited_fields.extend(
             member

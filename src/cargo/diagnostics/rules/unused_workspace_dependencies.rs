@@ -1,12 +1,12 @@
 use std::path::Path;
 
+use crate::util::data_structures::IndexSet;
 use cargo_util_schemas::manifest::InheritableDependency;
 use cargo_util_terminal::report::AnnotationKind;
 use cargo_util_terminal::report::Group;
 use cargo_util_terminal::report::Level;
 use cargo_util_terminal::report::Origin;
 use cargo_util_terminal::report::Snippet;
-use indexmap::IndexSet;
 use tracing::instrument;
 
 use super::SUSPICIOUS;
@@ -31,7 +31,7 @@ pub static LINT: &Lint = &Lint {
 ### What it does
 Checks for any entry in `[workspace.dependencies]` that has not been inherited
 
-### Why it is bad
+### Why is this bad?
 They can give the false impression that these dependencies are used
 
 ### Example
@@ -67,7 +67,7 @@ pub(crate) fn lint_workspace(
         .flat_map(|d| d.keys())
         .collect();
 
-    let mut inherited_deps = IndexSet::new();
+    let mut inherited_deps = IndexSet::default();
     for member in ws.members() {
         let Some(original_toml) = member.manifest().original_toml() else {
             return Ok(());

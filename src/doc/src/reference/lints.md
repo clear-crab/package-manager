@@ -49,13 +49,13 @@ These lints are all set to the 'deny' level by default.
 
 - Group: `suspicious`
 - Level: `warn`
-- MSRV: `1.79.0`
+- Minimal [`package.rust-version`]: `1.79.0`
 
 
 ### What it does
 Checks if `hint-mostly-unused` being applied to all dependencies.
 
-### Why it is bad
+### Why is this bad?
 `hint-mostly-unused` indicates that most of a crate's API surface will go
 unused by anything depending on it; this hint can speed up the build by
 attempting to minimize compilation time for items that aren't used at all.
@@ -92,7 +92,7 @@ such as `serde = "1"` or `serde = "1.0"`.
 This lint currently only applies to caret requirements
 (the [default requirements](specifying-dependencies.md#default-requirements)).
 
-### Why it is bad
+### Why is this bad?
 
 Version requirements without an explicit full version
 can be misleading about the actual minimum supported version.
@@ -133,14 +133,14 @@ serde = "1.0.219"
 
 - Group: `suspicious`
 - Level: `warn`
-- MSRV: `1.79.0`
+- Minimal [`package.rust-version`]: `1.79.0`
 
 
 ### What it does
 
 Checks for packages without a `lints` table while `workspace.lints` is present.
 
-### Why it is bad
+### Why is this bad?
 
 Many people mistakenly think that `workspace.lints` is implicitly inherited when it is not.
 
@@ -174,14 +174,14 @@ or make it explicit that you don't intend to inherit by adding an empty `[lints]
 
 - Group: `style`
 - Level: `warn`
-- MSRV: `1.79.0`
+- Minimal [`package.rust-version`]: `1.79.0`
 
 
 ### What it does
 
 Detect binary names, explicit and implicit, that are not kebab-case
 
-### Why it is bad
+### Why is this bad?
 
 Kebab-case binary names is a common convention among command line tools.
 
@@ -218,7 +218,7 @@ name = "foo-bar"
 
 Detect feature names that are not kebab-case.
 
-### Why it is bad
+### Why restrict this?
 
 Having multiple naming styles within a workspace can be confusing.
 
@@ -251,7 +251,7 @@ foo-bar = []
 
 Detect package names that are not kebab-case.
 
-### Why it is bad
+### Why restrict this?
 
 Having multiple naming styles within a workspace can be confusing.
 
@@ -284,7 +284,7 @@ name = "foo-bar"
 
 Detect feature names that are not snake-case.
 
-### Why it is bad
+### Why restrict this?
 
 Having multiple naming styles within a workspace can be confusing.
 
@@ -317,7 +317,7 @@ foo_bar = []
 
 Detect package names that are not snake-case.
 
-### Why it is bad
+### Why restrict this?
 
 Having multiple naming styles within a workspace can be confusing.
 
@@ -344,7 +344,7 @@ name = "foo-bar"
 
 - Group: `style`
 - Level: `warn`
-- MSRV: `1.79.0`
+- Minimal [`package.rust-version`]: `1.79.0`
 
 
 ### What it does
@@ -353,7 +353,7 @@ Checks if the value of `package.homepage` is already covered by another field.
 
 See also [`package.homepage` reference documentation](manifest.md#the-homepage-field).
 
-### Why it is bad
+### Why is this bad?
 
 When package browsers render each link, a redundant link adds visual noise.
 
@@ -381,7 +381,7 @@ repository = "https://github.com/rust-lang/cargo/"
 
 - Group: `style`
 - Level: `warn`
-- MSRV: `1.79.0`
+- Minimal [`package.rust-version`]: `1.79.0`
 
 
 ### What it does
@@ -390,7 +390,7 @@ Checks for `package.readme` fields that can be inferred.
 
 See also [`package.readme` reference documentation](manifest.md#the-readme-field).
 
-### Why it is bad
+### Why is this bad?
 
 Adds boilerplate.
 
@@ -418,14 +418,14 @@ name = "foo"
 
 - Group: `correctness`
 - Level: `deny`
-- MSRV: `1.79.0`
+- Minimal [`package.rust-version`]: `1.79.0`
 
 
 ### What it does
 Detects Unicode codepoints in manifest comments that change the visual representation of text on screen
 in a way that does not correspond to their on memory representation.
 
-### Why it is bad
+### Why is this bad?
 Unicode allows changing the visual flow of text on screen
 in order to support scripts that are written right-to-left,
 but a specially crafted comment can make code that will be compiled appear to be part of a comment,
@@ -439,14 +439,14 @@ by default we deny their use.
 
 - Group: `correctness`
 - Level: `deny`
-- MSRV: `1.79.0`
+- Minimal [`package.rust-version`]: `1.79.0`
 
 
 ### What it does
 Detects Unicode codepoints in literals in manifests that change the visual representation of text on screen
 in a way that does not correspond to their on memory representation.
 
-### Why it is bad
+### Why is this bad?
 Unicode allows changing the visual flow of text on screen
 in order to support scripts that are written right-to-left,
 but a specially crafted literal can make code that will be compiled appear to be part of a literal,
@@ -460,13 +460,13 @@ by default we deny their use.
 
 - Group: `suspicious`
 - Level: `warn`
-- MSRV: `1.79.0`
+- Minimal [`package.rust-version`]: `1.79.0`
 
 
 ### What it does
 Checks for unknown lints in the `[lints.cargo]` table
 
-### Why it is bad
+### Why is this bad?
 - The lint name could be misspelled, leading to confusion as to why it is
   not working as expected
 - The unknown lint could end up causing an error if `cargo` decides to make
@@ -483,14 +483,14 @@ this-lint-does-not-exist = "warn"
 
 - Group: `style`
 - Level: `warn`
-- MSRV: `1.79.0`
+- Minimal [`package.rust-version`]: `1.79.0`
 
 
 ### What it does
 
 Checks for dependencies that are not used by any of the cargo targets.
 
-### Why it is bad
+### Why is this bad?
 
 Slows down compilation time.
 
@@ -537,13 +537,13 @@ name = "foo"
 
 - Group: `suspicious`
 - Level: `warn`
-- MSRV: `1.79.0`
+- Minimal [`package.rust-version`]: `1.79.0`
 
 
 ### What it does
 Checks for any entry in `[workspace.dependencies]` that has not been inherited
 
-### Why it is bad
+### Why is this bad?
 They can give the false impression that these dependencies are used
 
 ### Example
@@ -559,13 +559,13 @@ regex = "1"
 
 - Group: `suspicious`
 - Level: `warn`
-- MSRV: `1.79.0`
+- Minimal [`package.rust-version`]: `1.79.0`
 
 
 ### What it does
 Checks for any fields in `[workspace.package]` that has not been inherited
 
-### Why it is bad
+### Why is this bad?
 They can give the false impression that these fields are used
 
 ### Example
@@ -578,3 +578,5 @@ name = "foo"
 ```
 
 
+
+[`package.rust-version`]: rust-version.md

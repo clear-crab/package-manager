@@ -245,10 +245,11 @@ fn find_lint_or_group<'a>(
 
 #[cfg(test)]
 mod tests {
+    use crate::util::data_structures::HashSet;
+    use crate::util::data_structures::IndexMap;
     use itertools::Itertools;
     use snapbox::ToDebug;
     use std::cmp::Reverse;
-    use std::collections::HashSet;
 
     use super::*;
 
@@ -265,6 +266,78 @@ mod tests {
             {}\n",
             forbid_groups.iter().map(|g| g.name).join("\n")
         );
+    }
+
+    #[test]
+    fn ensure_visible_lint_msrv() {
+        let invalid_msrvs = LINTS
+            .iter()
+            // Only relevant for default lints
+            .filter(|l| !matches!(l.primary_group.default_level, LintLevel::Allow))
+            .filter(|l| l.msrv.map(|v| v < CARGO_LINTS_MSRV).unwrap_or(false))
+            .map(|l| l.name)
+            .join(", ");
+        assert!(
+            invalid_msrvs.is_empty(),
+            "{invalid_msrvs} need `msrv` set so users can use `[lints.cargo]` to disable them"
+        );
+    }
+
+    #[test]
+    fn ensure_docs_sections() {
+        let expected_sections_restriction = &[
+            "### What it does",
+            "### Why restrict this?",
+            "### Drawbacks",
+            "### Example",
+        ];
+        let expected_sections = &[
+            "### What it does",
+            "### Why is this bad?",
+            "### Drawbacks",
+            "### Example",
+        ];
+        for lint in LINTS {
+            dbg!(lint.name);
+            let mut sections = IndexMap::default();
+            let mut title = "";
+            let mut body = Vec::new();
+            let Some(docs) = lint.docs else {
+                continue;
+            };
+            for line in docs.trim().lines() {
+                if line.starts_with("#") {
+                    if !title.is_empty() || !body.is_empty() {
+                        let old = sections.insert(title, body);
+                        assert!(old.is_none(), "duplicate title: `{title:?}`");
+                    }
+                    title = line;
+                    body = Vec::new();
+                } else {
+                    body.push(line);
+                }
+            }
+            if !title.is_empty() || !body.is_empty() {
+                let old = sections.insert(title, body);
+                assert!(old.is_none(), "duplicate title: `{title:?}`");
+            }
+
+            let mut expected = Vec::new();
+            let expected_sections = match lint.primary_group.name {
+                "restriction" => expected_sections_restriction,
+                _ => expected_sections,
+            };
+            for section in expected_sections {
+                let body = match sections.get(section) {
+                    Some(body) => body,
+                    None => continue,
+                };
+                expected.push(*section);
+                expected.extend(body.iter().copied());
+            }
+            let expected = expected.join("\n");
+            snapbox::assert_data_eq!(docs.trim(), expected);
+        }
     }
 
     #[test]
@@ -353,10 +426,7 @@ mod tests {
     fn ensure_parse_passed_in_lints() {
         let parse_pass_lint_names =
             HashSet::from_iter(parse_pass_rule_names(PARSE_PASS_RULES).into_iter());
-        let lint_names = LINTS
-            .iter()
-            .map(|l| l.name)
-            .collect::<std::collections::HashSet<_>>();
+        let lint_names = LINTS.iter().map(|l| l.name).collect::<HashSet<_>>();
         let diff = parse_pass_lint_names
             .difference(&lint_names)
             .sorted()
@@ -390,7 +460,7 @@ mod tests {
     #[test]
     fn ensure_updated_lints() {
         let dir = snapbox::utils::current_dir!();
-        let mut expected = HashSet::new();
+        let mut expected = HashSet::default();
         for entry in std::fs::read_dir(&dir).unwrap() {
             let entry = entry.unwrap();
             let path = entry.path();

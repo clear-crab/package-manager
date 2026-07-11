@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use crate::util::data_structures::HashMap;
 use std::path::Path;
 
 use cargo_platform::Platform;
@@ -45,7 +45,7 @@ such as `serde = "1"` or `serde = "1.0"`.
 This lint currently only applies to caret requirements
 (the [default requirements](specifying-dependencies.md#default-requirements)).
 
-### Why it is bad
+### Why is this bad?
 
 Version requirements without an explicit full version
 can be misleading about the actual minimum supported version.

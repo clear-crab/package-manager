@@ -25,6 +25,7 @@ use crate::core::{CliUnstable, Dependency};
 use crate::core::{PackageId, SourceId, Summary};
 use crate::sources::registry::{LoadResponse, RegistryData};
 use crate::util::IntoUrl;
+use crate::util::data_structures::HashMap;
 use crate::util::interning::InternedString;
 use crate::util::{CargoResult, Filesystem, GlobalContext, OptVersionReq, internal};
 use cargo_util::registry::make_dep_path;
@@ -36,7 +37,6 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
-use std::collections::HashMap;
 use std::path::Path;
 use std::rc::Rc;
 use std::str;
@@ -248,8 +248,8 @@ impl<'gctx> RegistryIndex<'gctx> {
         RegistryIndex {
             source_id,
             path: path.clone(),
-            summaries_cache: RefCell::new(HashMap::new()),
-            summaries_inflight: RefCell::new(HashMap::new()),
+            summaries_cache: RefCell::new(HashMap::default()),
+            summaries_inflight: RefCell::new(HashMap::default()),
             gctx,
             cache_manager: CacheManager::new(path.join(".cache"), gctx),
         }
@@ -633,15 +633,18 @@ impl Summaries {
     pub fn parse_cache(contents: Vec<u8>) -> CargoResult<(Summaries, InternedString)> {
         let cache = SummariesCache::parse(&contents)?;
         let index_version = cache.index_version.into();
-        let mut ret = Summaries::default();
+        let mut versions = Vec::with_capacity(cache.versions.len());
         for (version, summary) in cache.versions {
             let (start, end) = subslice_bounds(&contents, summary);
-            ret.versions.push((
+            versions.push((
                 version,
                 RefCell::new(MaybeIndexSummary::Unparsed { start, end }),
             ));
         }
-        ret.raw_data = contents;
+        let ret = Summaries {
+            raw_data: contents,
+            versions,
+        };
         return Ok((ret, index_version));
 
         // Returns the start/end offsets of `inner` with `outer`. Asserts that
