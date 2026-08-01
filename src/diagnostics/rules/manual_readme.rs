@@ -22,9 +22,10 @@ use crate::diagnostics::workspace_rel_path;
 use crate::workspace::Package;
 use crate::workspace::Workspace;
 use crate::workspace::parser::DEFAULT_README_FILES;
+use crate::workspace::parser::default_readme_from_package_root;
 
 pub static LINT: &Lint = &Lint {
-    name: "redundant_readme",
+    name: "manual_readme",
     desc: "explicit `package.readme` can be inferred",
     primary_group: &STYLE,
     msrv: Some(super::CARGO_LINTS_MSRV),
@@ -109,7 +110,9 @@ fn lint_package_inner(
         return Ok(());
     };
 
-    if !DEFAULT_README_FILES.contains(&readme.as_str()) {
+    if !DEFAULT_README_FILES.contains(&readme.as_str())
+        || default_readme_from_package_root(pkg.root()).as_deref() != Some(readme)
+    {
         return Ok(());
     }
 
