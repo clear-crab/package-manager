@@ -582,7 +582,14 @@ fn normalize_toml(
         normalized_toml.badges = original_toml.badges.clone();
     } else {
         if let Some(field) = original_toml.requires_package().next() {
-            bail!("this virtual manifest specifies a `{field}` section, which is not allowed");
+            let suggestion = if field == "lints" {
+                "\nhelp: a similar field exists: `[workspace.lints]`"
+            } else {
+                ""
+            };
+            bail!(
+                "this virtual manifest specifies a `{field}` section, which is not allowed{suggestion}"
+            );
         }
     }
 
@@ -1216,25 +1223,31 @@ fn inner_dependency_inherit_with<'a>(
     } = &pkg_dep;
     let default_features = default_features.or(*default_features2);
 
-    match (default_features, merged_dep.default_features()) {
-        // member: default-features = true and
-        // workspace: default-features = false should turn on
-        // default-features
-        (Some(true), Some(false)) => {
-            merged_dep.default_features = Some(true);
+    // RFC 3945: Allow workspace members to override the workspace dependency's
+    // `default-features` setting.
+    if edition >= Edition::Edition2024 {
+        merged_dep.default_features = default_features.or(merged_dep.default_features);
+    } else {
+        match (default_features, merged_dep.default_features()) {
+            // member: default-features = true and
+            // workspace: default-features = false should turn on
+            // default-features
+            (Some(true), Some(false)) => {
+                merged_dep.default_features = Some(true);
+            }
+            // member: default-features = false and
+            // workspace: default-features = true should ignore member
+            // default-features
+            (Some(false), Some(true)) => {
+                deprecated_ws_default_features(name, Some(true), warnings);
+            }
+            // member: default-features = false and
+            // workspace: dep = "1.0" should ignore member default-features
+            (Some(false), None) => {
+                deprecated_ws_default_features(name, None, warnings);
+            }
+            _ => {}
         }
-        // member: default-features = false and
-        // workspace: default-features = true should ignore member
-        // default-features
-        (Some(false), Some(true)) => {
-            deprecated_ws_default_features(name, Some(true), edition, warnings)?;
-        }
-        // member: default-features = false and
-        // workspace: dep = "1.0" should ignore member default-features
-        (Some(false), None) => {
-            deprecated_ws_default_features(name, None, edition, warnings)?;
-        }
-        _ => {}
     }
     merged_dep.features = match (merged_dep.features.clone(), features.clone()) {
         (Some(dep_feat), Some(inherit_feat)) => Some(
@@ -1255,24 +1268,19 @@ fn inner_dependency_inherit_with<'a>(
 fn deprecated_ws_default_features(
     label: &str,
     ws_def_feat: Option<bool>,
-    edition: Edition,
     warnings: &mut Vec<String>,
-) -> CargoResult<()> {
+) {
     let ws_def_feat = match ws_def_feat {
         Some(true) => "true",
         Some(false) => "false",
         None => "not specified",
     };
-    if Edition::Edition2024 <= edition {
-        anyhow::bail!("`default-features = false` cannot override workspace's `default-features`");
-    } else {
-        warnings.push(format!(
-            "`default-features` is ignored for {label}, since `default-features` was \
-                {ws_def_feat} for `workspace.dependencies.{label}`, \
-                this could become a hard error in the future"
-        ));
-    }
-    Ok(())
+    warnings.push(format!(
+        "`default-features` is ignored for {label}, since `default-features` was \
+                {ws_def_feat} for `workspace.dependencies.{label}`; \
+                overriding workspace `default-features` to false requires Rust 1.99+ \
+                and the 2024 edition"
+    ));
 }
 
 #[tracing::instrument(skip_all)]
@@ -2560,15 +2568,6 @@ pub fn validate_profile(
             "dir-name=\"{}\" in profile `{}` is not currently allowed, \
                  directory names are tied to the profile name for custom profiles",
             dir_name,
-            name
-        );
-    }
-
-    // `inherits` validation
-    if matches!(root.inherits.as_deref(), Some("debug")) {
-        bail!(
-            "profile.{}.inherits=\"debug\" should be profile.{}.inherits=\"dev\"",
-            name,
             name
         );
     }
