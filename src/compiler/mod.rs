@@ -106,6 +106,7 @@ use crate::compiler::timings::SectionTiming;
 pub use crate::compiler::unit::Unit;
 pub use crate::compiler::unit::UnitIndex;
 pub use crate::compiler::unit::UnitInterner;
+use crate::context::FingerprintMethod;
 use crate::diagnostics::get_key_value;
 use crate::util::OnceExt;
 use crate::util::errors::{CargoResult, VerboseError};
@@ -198,6 +199,23 @@ fn compile<'gctx>(
     } else {
         None
     };
+
+    match build_runner
+        .bcx
+        .gctx
+        .build_config()?
+        .fingerprint
+        .unwrap_or_default()
+    {
+        FingerprintMethod::Content => {
+            if !build_runner.bcx.gctx.cli_unstable().checksum_freshness {
+                build_runner.bcx.gctx.shell().warn(
+                    r#"ignoring `build.fingerprint = "content"` without `-Zchecksum-freshness`"#,
+                )?;
+            }
+        }
+        FingerprintMethod::Mtime => {}
+    }
 
     // If we are in `--compile-time-deps` and the given unit is not a compile time
     // dependency, skip compiling the unit and jumps to dependencies, which still
@@ -831,7 +849,18 @@ fn prepare_rustc(build_runner: &BuildRunner<'_, '_>, unit: &Unit) -> CargoResult
         base.arg("-Z").arg("binary-dep-depinfo");
     }
     if build_runner.bcx.gctx.cli_unstable().checksum_freshness {
-        base.arg("-Z").arg("checksum-hash-algorithm=blake3");
+        match build_runner
+            .bcx
+            .gctx
+            .build_config()?
+            .fingerprint
+            .unwrap_or_default()
+        {
+            FingerprintMethod::Content => {
+                base.arg("-Z").arg("checksum-hash-algorithm=blake3");
+            }
+            FingerprintMethod::Mtime => {}
+        }
     }
 
     if is_primary {
@@ -922,7 +951,18 @@ fn prepare_rustdoc(build_runner: &BuildRunner<'_, '_>, unit: &Unit) -> CargoResu
         rustdoc.arg(arg);
 
         if build_runner.bcx.gctx.cli_unstable().checksum_freshness {
-            rustdoc.arg("-Z").arg("checksum-hash-algorithm=blake3");
+            match build_runner
+                .bcx
+                .gctx
+                .build_config()?
+                .fingerprint
+                .unwrap_or_default()
+            {
+                FingerprintMethod::Content => {
+                    rustdoc.arg("-Z").arg("checksum-hash-algorithm=blake3");
+                }
+                FingerprintMethod::Mtime => {}
+            }
         }
     } else if build_runner.bcx.gctx.cli_unstable().rustdoc_mergeable_info && !wants_json_output {
         // toolchain resources are written at the end, at the same time as merging
@@ -1320,7 +1360,12 @@ fn build_base_args(
 
     if unit.mode.is_check() {
         cmd.arg("--emit=dep-info,metadata");
-    } else if !build_runner.bcx.gctx.should_embed_metadata() {
+    } else if !build_runner
+        .bcx
+        .target_data
+        .info(unit.kind)
+        .should_embed_metadata()
+    {
         // Nightly rustc supports the -Zembed-metadata=no flag, which tells it to avoid including
         // full metadata in rlib/dylib artifacts, to save space on disk. In this case, metadata
         // will only be stored in .rmeta files.
@@ -1814,7 +1859,11 @@ pub fn extern_args(
     let mut result = Vec::new();
     let deps = build_runner.unit_deps(unit);
 
-    let no_embed_metadata = !build_runner.bcx.gctx.should_embed_metadata();
+    let no_embed_metadata = !build_runner
+        .bcx
+        .target_data
+        .info(unit.kind)
+        .should_embed_metadata();
     let public_dependency_enabled = is_public_dependency_enabled(build_runner, unit);
 
     // Closure to add one dependency to `result`.

@@ -369,7 +369,7 @@ dependencies = [
 
 [[package]]
 name = "cargo"
-version = "0.100.0"
+version = "0.101.0"
 dependencies = [
  "annotate-snippets",
  "anstream",
@@ -533,7 +533,7 @@ version = "0.4.14"
 
 [[package]]
 name = "cargo-test-support"
-version = "0.11.5"
+version = "0.11.6"
 dependencies = [
  "anyhow",
  "cargo-test-macro",
