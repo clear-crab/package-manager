@@ -39,7 +39,8 @@ and `/projects/foo/bar/baz/mybin/.cargo/config.toml`, Cargo does not read
 those configuration files if it is invoked from the workspace root
 (`/projects/foo/bar/baz/`).
 
-> **Note:** Cargo also reads config files without the `.toml` extension, such as
+> [!NOTE]
+> Cargo also reads config files without the `.toml` extension, such as
 > `.cargo/config`. Support for the `.toml` extension was added in version 1.39
 > and is the preferred form. If both files exist, Cargo will use the file
 > without the extension.
@@ -152,11 +153,13 @@ rpath = false            # Sets the rpath linking option.
 [resolver]
 lockfile-path = "…"  # Overrides the path used for
 incompatible-rust-versions = "allow"  # Specifies how resolver reacts to these
+incompatible-publish-age = "deny"  # Specifies how resolver treats recently published versions
 
 [registries.<name>]  # registries other than crates.io
 index = "…"          # URL of the registry index
 token = "…"          # authentication token for the registry
 credential-provider = "cargo:token" # The credential provider for this registry.
+min-publish-age = "7 days" # Override `registry.global-min-publish-age` for this registry
 
 [registries.crates-io]
 protocol = "sparse"  # The protocol to use to access crates.io.
@@ -166,6 +169,7 @@ default = "…"        # name of the default registry
 token = "…"          # authentication token for crates.io
 credential-provider = "cargo:token"           # The credential provider for crates.io.
 global-credential-providers = ["cargo:token"] # The credential providers to use by default.
+global-min-publish-age = "7 days" # The time span allowed for registry packages to use by default.
 
 [source.<name>]      # source definition and replacement
 replace-with = "…"   # replace this source with the given named source
@@ -303,7 +307,8 @@ include = [
 ]
 ```
 
-> **Note:** For better readability and to avoid confusion, it is recommended to:
+> [!NOTE]
+> For better readability and to avoid confusion, it is recommended to:
 > - Place `include` at the top of the configuration file
 > - Put one include per line for clearer version control diffs
 > - Use inline table syntax when optional includes are needed
@@ -338,7 +343,8 @@ In particular, rules are:
   no matter those files are from either the [hierarchical probing](#hierarchical-structure)
   or the [`--config <path>`](#command-line-overrides) option.
 
-> **Note:** To maintain consistency with existing `.cargo/config.toml` probing behavior,
+> [!IMPORTANT]
+> To maintain consistency with existing `.cargo/config.toml` probing behavior,
 > it is by design that a path in a config file passed via `--config <path>`
 > is also relative to two levels up from the config file itself.
 >
@@ -401,7 +407,8 @@ be specified with environment variables of the form
 `CARGO_REGISTRIES_<name>_TOKEN` where `<name>` is the name of the registry in
 all capital letters.
 
-> **Note:** Cargo also reads and writes credential files without the `.toml`
+> [!NOTE]
+> Cargo also reads and writes credential files without the `.toml`
 > extension, such as `.cargo/credentials`. Support for the `.toml` extension
 > was added in version 1.39. In version 1.68, Cargo writes to the file with the
 > extension by default. However, for backward compatibility reason, when both
@@ -605,7 +612,8 @@ It is not recommended to pass in flags that Cargo itself usually manages. For
 example, the flags driven by [profiles](profiles.md) are best handled by setting the
 appropriate profile setting.
 
-> **Caution**: Due to the low-level nature of passing flags directly to the
+> [!CAUTION]
+> Due to the low-level nature of passing flags directly to the
 > compiler, this may cause a conflict with future versions of Cargo which may
 > issue the same or similar flags on its own which may interfere with the
 > flags you specify. This is an area where Cargo may not always be backwards
@@ -630,7 +638,8 @@ order, with the first one being used:
 
 Additional flags may also be passed with the [`cargo rustdoc`] command.
 
-> **Caution**: Due to the low-level nature of passing flags directly to the
+> [!CAUTION]
+> Due to the low-level nature of passing flags directly to the
 > compiler, this may cause a conflict with future versions of Cargo which may
 > issue the same or similar flags on its own which may interfere with the
 > flags you specify. This is an area where Cargo may not always be backwards
@@ -776,7 +785,8 @@ The automatic deletion of files only occurs when running commands that are alrea
 
 Automatic deletion is disabled if cargo is offline such as with `--offline` or `--frozen` to avoid deleting artifacts that may need to be used if you are offline for a long period of time.
 
-> **Note**: This tracking is currently only implemented for the global cache in Cargo's home directory.
+> [!NOTE]
+> This tracking is currently only implemented for the global cache in Cargo's home directory.
 > This includes registry indexes and source files downloaded from registries and git dependencies.
 > Support for tracking build artifacts is not yet implemented, and tracked in [cargo#13136](https://github.com/rust-lang/cargo/issues/13136).
 >
@@ -1154,6 +1164,23 @@ See the [resolver](resolver.md#rust-version) chapter for more details.
 > - `allow` is supported on any version
 > - `fallback` is respected as of 1.84
 
+#### `resolver.incompatible-publish-age`
+* Type: string
+* Default: `"deny"`
+* Environment: `CARGO_RESOLVER_INCOMPATIBLE_PUBLISH_AGE`
+
+When resolving the version of a dependency,
+specify the behavior for versions with a `pubtime` (if present)
+that is incompatible with the configured `min-publish-age`.
+Values include:
+
+- `allow`: treat pubtime-incompatible versions like any other version
+- `deny`: ignore pubtime-incompatible versions unless they already exist in the lock file
+
+See the [resolver](resolver.md#publish-age) chapter for more details.
+
+> **MSRV:** Respected as of 1.100+
+
 ### `[registries]`
 
 The `[registries]` table is used for specifying additional [registries]. It
@@ -1192,6 +1219,26 @@ paths or arguments that contain spaces, use an array.
 If the value exists in the [`[credential-alias]`](#credential-alias) table, the alias will be used.
 
 See [Registry Authentication](registry-authentication.md) for more information.
+
+#### `registries.<name>.min-publish-age`
+* Type: string
+* Default: [`registry.global-min-publish-age`](#registryglobal-min-publish-age)
+* Environment: `CARGO_REGISTRIES_<name>_MIN_PUBLISH_AGE`
+
+Specifies the minimum timespan since a version's `pubtime` that may be
+considered for [`resolver.incompatible-publish-age`] for packages from this
+registry. If not set, [`registry.global-min-publish-age`](#registryglobal-min-publish-age) will be used.
+
+Will be ignored if the registry does not support this.
+
+It supports the following values:
+
+- An integer followed by "seconds", "minutes", "hours", "days", "weeks", or "months"
+- `"0"` to allow all packages
+
+Generally, `"0"`, `"N days"`, and `"N weeks"` will be used.
+
+> **MSRV:** Respected as of 1.100+
 
 #### `registries.crates-io.protocol`
 * Type: string
@@ -1267,6 +1314,25 @@ provider should be defined in the [`[credential-alias]`](#credential-alias) tabl
 referenced here by its alias.
 
 See [Registry Authentication](registry-authentication.md) for more information.
+
+#### `registry.global-min-publish-age`
+* Type: string
+* Default: `"0"`
+* Environment: `CARGO_REGISTRY_GLOBAL_MIN_PUBLISH_AGE`
+
+Specifies the global minimum timespan since a version's `pubtime` that it may
+be considered for [`resolver.incompatible-publish-age`] for packages.
+If `min-publish-age` is not set for a specific registry using
+`registries.<name>.min-publish-age`, Cargo will use this minimum publish age.
+
+It supports the following values:
+
+- An integer followed by "seconds", "minutes", "hours", "days", "weeks", or "months"
+- `"0"` to allow all packages
+
+Generally, `"0"`, `"N days"`, and `"N weeks"` will be used.
+
+> **MSRV:** Respected as of 1.100+
 
 ### `[source]`
 
@@ -1555,3 +1621,4 @@ Report progress to the terminal emulator for display in places like the task bar
 [crates.io]: https://crates.io/
 [target triple]: ../appendix/glossary.md#target '"target" (glossary)'
 [`<triple>`]: ../appendix/glossary.md#target '"target" (glossary)'
+[`resolver.incompatible-publish-age`]: config.md#resolverincompatible-publish-age

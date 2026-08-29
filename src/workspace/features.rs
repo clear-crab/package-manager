@@ -886,7 +886,6 @@ unstable_cli_options!(
     build_std: Option<Vec<String>>  = ("Enable Cargo to compile the standard library itself as part of a crate graph compilation"),
     #[serde(deserialize_with = "deserialize_comma_separated_list")]
     build_std_features: Option<Vec<String>>  = ("Configure features enabled for the standard library itself when building the standard library"),
-    cargo_lints: bool = ("Enable the `[lints.cargo]` table"),
     checksum_freshness: bool = ("Use a checksum to determine if output is fresh rather than filesystem mtime"),
     codegen_backend: bool = ("Enable the `codegen-backend` option in profiles in .cargo/config.toml file"),
     direct_minimal_versions: bool = ("Resolve minimal dependency versions instead of maximum (direct dependencies only)"),
@@ -903,7 +902,6 @@ unstable_cli_options!(
     hint_msrv: bool = ("Enable passing `package.rust-version` to rustc for lints"),
     host_config: bool = ("Enable the `[host]` section in the .cargo/config.toml file"),
     json_target_spec: bool = ("Enable `.json` target spec files"),
-    min_publish_age: bool = ("Enable the `min-publish-age` configuration for dependency version age filtering"),
     minimal_versions: bool = ("Resolve minimal dependency versions instead of maximum"),
     msrv_policy: bool = ("Enable rust-version aware policy within cargo"),
     mtime_on_use: bool = ("Configure Cargo to update the mtime of used files"),
@@ -1003,6 +1001,8 @@ const STABILIZED_REGISTRY_AUTH: &str =
 
 const STABILIZED_LINTS: &str = "The `[lints]` table is now always available.";
 
+const STABILIZED_CARGO_LINTS: &str = "The `[lints.cargo]` table is now always available.";
+
 const STABILIZED_CHECK_CFG: &str =
     "Compile-time checking of conditional (a.k.a. `-Zcheck-cfg`) is now always enabled.";
 
@@ -1020,6 +1020,9 @@ const STABILIZED_LOCKFILE_PATH: &str = "The `lockfile-path` config key is now al
 const STABILIZED_WARNINGS: &str = "The `build.warnings` config key is now always available";
 
 const STABILIZED_BUILD_DIR_NEW_LAYOUT: &str = "build.build-dir-new-layout is now always enabled.";
+
+const STABILIZED_MIN_PUBLISH_AGE: &str =
+    "The `min-publish-age` configuration is now always available.";
 
 fn deserialize_comma_separated_list<'de, D>(
     deserializer: D,
@@ -1143,10 +1146,6 @@ pub struct GitoxideFeatures {
     /// Checkout git dependencies using `gitoxide` (submodules are still handled by git2 ATM, and filters
     /// like linefeed conversions are unsupported).
     pub checkout: bool,
-    /// A feature flag which doesn't have any meaning except for preventing
-    /// `__CARGO_USE_GITOXIDE_INSTEAD_OF_GIT2=1` builds to enable all safe `gitoxide` features.
-    /// That way, `gitoxide` isn't actually used even though it's enabled.
-    pub internal_use_git2: bool,
 }
 
 impl GitoxideFeatures {
@@ -1154,22 +1153,11 @@ impl GitoxideFeatures {
         GitoxideFeatures {
             fetch: true,
             checkout: true,
-            internal_use_git2: false,
-        }
-    }
-
-    /// Features we deem safe for everyday use - typically true when all tests pass with them
-    /// AND they are backwards compatible.
-    fn safe() -> Self {
-        GitoxideFeatures {
-            fetch: true,
-            checkout: true,
-            internal_use_git2: false,
         }
     }
 
     fn expecting() -> String {
-        let fields = ["`fetch`", "`checkout`", "`internal-use-git2`"];
+        let fields = ["`fetch`", "`checkout`"];
         format!(
             "unstable 'gitoxide' only takes {} as valid inputs, for shallow fetches see `-Zgit=shallow-index,shallow-deps`",
             fields.join(" and ")
@@ -1234,17 +1222,12 @@ fn parse_gitoxide(
     it: impl Iterator<Item = impl AsRef<str>>,
 ) -> CargoResult<Option<GitoxideFeatures>> {
     let mut out = GitoxideFeatures::default();
-    let GitoxideFeatures {
-        fetch,
-        checkout,
-        internal_use_git2,
-    } = &mut out;
+    let GitoxideFeatures { fetch, checkout } = &mut out;
 
     for e in it {
         match e.as_ref() {
             "fetch" => *fetch = true,
             "checkout" => *checkout = true,
-            "internal-use-git2" => *internal_use_git2 = true,
             _ => {
                 bail!(GitoxideFeatures::expecting())
             }
@@ -1280,10 +1263,6 @@ impl CliUnstable {
         }
         for flag in flags {
             self.add(flag, &mut warnings)?;
-        }
-
-        if self.gitoxide.is_none() && cargo_use_gitoxide_instead_of_git2() {
-            self.gitoxide = GitoxideFeatures::safe().into();
         }
 
         self.implicitly_enable_features_if_needed();
@@ -1422,6 +1401,8 @@ impl CliUnstable {
             "lockfile-path" => stabilized_warn(k, "1.97", STABILIZED_LOCKFILE_PATH),
             "warnings" => stabilized_warn(k, "1.97", STABILIZED_WARNINGS),
             "build-dir-new-layout" => stabilized_warn(k, "1.100", STABILIZED_BUILD_DIR_NEW_LAYOUT),
+            "cargo-lints" => stabilized_warn(k, "1.100", STABILIZED_CARGO_LINTS),
+            "min-publish-age" => stabilized_warn(k, "1.100", STABILIZED_MIN_PUBLISH_AGE),
 
             // Unstable features
             // Sorted alphabetically:
@@ -1434,7 +1415,6 @@ impl CliUnstable {
             "build-analysis" => self.build_analysis = parse_empty(k, v)?,
             "build-std" => self.build_std = Some(parse_list(v)),
             "build-std-features" => self.build_std_features = Some(parse_list(v)),
-            "cargo-lints" => self.cargo_lints = parse_empty(k, v)?,
             "codegen-backend" => self.codegen_backend = parse_empty(k, v)?,
             "direct-minimal-versions" => self.direct_minimal_versions = parse_empty(k, v)?,
             "dual-proc-macros" => self.dual_proc_macros = parse_empty(k, v)?,
@@ -1459,7 +1439,6 @@ impl CliUnstable {
             }
             "host-config" => self.host_config = parse_empty(k, v)?,
             "json-target-spec" => self.json_target_spec = parse_empty(k, v)?,
-            "min-publish-age" => self.min_publish_age = parse_empty(k, v)?,
             "hint-msrv" => self.hint_msrv = parse_empty(k, v)?,
             "next-lockfile-bump" => self.next_lockfile_bump = parse_empty(k, v)?,
             "minimal-versions" => self.minimal_versions = parse_empty(k, v)?,
@@ -1604,17 +1583,6 @@ pub fn channel() -> String {
     crate::version()
         .release_channel
         .unwrap_or_else(|| String::from("dev"))
-}
-
-/// Only for testing and developing. See ["Running with gitoxide as default git backend in tests"][1].
-///
-/// [1]: https://doc.crates.io/contrib/tests/running.html#running-with-gitoxide-as-default-git-backend-in-tests
-#[expect(
-    clippy::disallowed_methods,
-    reason = "testing only, no reason for config support"
-)]
-fn cargo_use_gitoxide_instead_of_git2() -> bool {
-    std::env::var_os("__CARGO_USE_GITOXIDE_INSTEAD_OF_GIT2").map_or(false, |value| value == "1")
 }
 
 #[expect(

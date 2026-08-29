@@ -347,13 +347,6 @@ fn bad_cfg_discovery() {
                     print!("{}", run_rustc());
                     return;
                 }
-                if mode == "no-sysroot" {
-                    return;
-                }
-                if std::env::args_os().any(|a| a == "--print=sysroot") {
-                    print!("{}", run_rustc());
-                    return;
-                }
                 if mode == "no-crate-types" {
                     return;
                 }
@@ -363,19 +356,24 @@ fn bad_cfg_discovery() {
                 }
                 let output = run_rustc();
                 let mut lines = output.lines();
-                let mut line = loop {
+                let sysroot = loop {
                     let line = lines.next().unwrap();
                     if line.contains("___") {
-                        println!("{line}");
+                        println!("{}", line);
                     } else {
                         break line;
                     }
                 };
+                if mode == "no-sysroot" {
+                    return;
+                }
+                println!("{}", sysroot);
 
                 if mode == "no-split-debuginfo" {
                     return;
                 }
                 loop {
+                    let line = lines.next().unwrap();
                     if line == "___" {
                         println!("\n{line}");
                         break;
@@ -384,7 +382,6 @@ fn bad_cfg_discovery() {
                         // concat them into one line.
                         print!("{line},");
                     }
-                    line = lines.next().unwrap();
                 };
 
                 if mode != "bad-cfg" {
@@ -414,22 +411,32 @@ foo
 
     p.cargo("check")
         .env("RUSTC", &funky_rustc)
-        .env("FUNKY_MODE", "no-sysroot")
-        .with_status(101)
-        .with_stderr_data(str![[r#"
-[ERROR] sysroot path "" does not exist
-
-"#]])
-        .run();
-
-    p.cargo("check")
-        .env("RUSTC", &funky_rustc)
         .env("FUNKY_MODE", "no-crate-types")
         .with_status(101)
         .with_stderr_data(str![[r#"
 [ERROR] malformed output when learning about crate-type bin information
 command was: `[ROOT]/compiler/target/debug/compiler[..] --crate-name ___ [..]`
 (no output received)
+
+"#]])
+        .run();
+
+    p.cargo("check")
+        .env("RUSTC", &funky_rustc)
+        .env("FUNKY_MODE", "no-sysroot")
+        .with_status(101)
+        .with_stderr_data(str![[r#"
+[ERROR] output of --print=sysroot missing when learning about target-specific information from rustc
+command was: `[ROOT]/compiler/target/debug/compiler[..]--crate-type [..]`
+
+--- stdout
+___[EXE]
+lib___.rlib
+[..]___.[..]
+[..]___.[..]
+[..]___.[..]
+[..]___.[..]
+
 
 "#]])
         .run();
@@ -449,6 +456,7 @@ lib___.rlib
 [..]___.[..]
 [..]___.[..]
 [..]___.[..]
+[..]
 
 
 "#]])
@@ -466,6 +474,7 @@ lib___.rlib
 [..]___.[..]
 [..]___.[..]
 [..]___.[..]
+[..]
 [..],[..]
 ___
 123
@@ -529,6 +538,9 @@ fn cfg_raw_idents() {
 
                 [target.'cfg(any(r#true, r#all, r#target_os = "<>"))'.dependencies]
                 b = { path = "b/" }
+
+                [lints.cargo]
+                default = "allow"
             "#,
         )
         .file("src/lib.rs", "")
@@ -618,6 +630,9 @@ fn cfg_keywords() {
 
                 [target.'cfg(any(async, fn, const, return, true))'.dependencies]
                 b = { path = "b/" }
+
+                [lints.cargo]
+                default = "allow"
             "#,
         )
         .file(
@@ -659,6 +674,9 @@ fn cfg_booleans() {
 
                 [target.'cfg(false)'.dependencies]
                 c = { path = 'c' }
+
+                [lints.cargo]
+                default = "allow"
             "#,
         )
         .file("src/lib.rs", "")
@@ -724,6 +742,9 @@ fn cfg_booleans_not() {
 
                 [target.'cfg(not(false))'.dependencies]
                 b = { path = 'b' }
+
+                [lints.cargo]
+                default = "allow"
             "#,
         )
         .file("src/lib.rs", "")
@@ -756,6 +777,9 @@ fn cfg_booleans_combinators() {
 
                 [target.'cfg(all(any(true), not(false), true))'.dependencies]
                 b = { path = 'b' }
+
+                [lints.cargo]
+                default = "allow"
             "#,
         )
         .file("src/lib.rs", "")
@@ -791,6 +815,9 @@ fn cfg_booleans_rustflags_no_effect() {
 
                 [target.'cfg(false)'.dependencies]
                 c = { path = 'c' }
+
+                [lints.cargo]
+                default = "allow"
             "#,
         )
         .file("src/lib.rs", "")
