@@ -51,10 +51,7 @@
         "null"
       ],
       "additionalProperties": {
-        "type": "array",
-        "items": {
-          "type": "string"
-        }
+        "$ref": "#/$defs/FeatureDefinition"
       }
     },
     "lib": {
@@ -626,6 +623,38 @@
       ]
     },
     "TomlValue": true,
+    "FeatureDefinition": {
+      "description": "Definition of a feature.",
+      "anyOf": [
+        {
+          "description": "Features that this feature enables.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        {
+          "description": "Unstable feature `feature-metadata`. Metadata of this feature.",
+          "$ref": "#/$defs/FeatureMetadata"
+        }
+      ]
+    },
+    "FeatureMetadata": {
+      "description": "Unstable feature `feature-metadata`. Metadata of a feature.",
+      "type": "object",
+      "properties": {
+        "enables": {
+          "description": "Features that this feature enables.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "enables"
+      ]
+    },
     "TomlTarget": {
       "type": "object",
       "properties": {
@@ -1444,7 +1473,11 @@
       "type": "string"
     },
     "TomlDebugInfo": {
-      "type": ["string", "integer", "boolean"],
+      "type": [
+        "string",
+        "integer",
+        "boolean"
+      ],
       "enum": [
         "none",
         "line-directives-only",
@@ -1462,24 +1495,11 @@
       "type": "string"
     },
     "TomlTrimPaths": {
-      "anyOf": [
-        {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/TomlTrimPathsValue"
-          }
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "TomlTrimPathsValue": {
       "type": "string",
       "enum": [
-        "diagnostics",
-        "macro",
-        "object"
+        "none",
+        "object",
+        "all"
       ]
     }
   }

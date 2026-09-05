@@ -165,9 +165,27 @@ pub fn build_unit_dependencies<'a, 'gctx>(
             list.sort();
         }
     }
-    trace!("ALL UNIT DEPENDENCIES {:#?}", state.unit_dependencies);
+
+    log_unit_deps_graph(ws.gctx(), &state.unit_dependencies);
 
     Ok(state.unit_dependencies)
+}
+
+fn log_unit_deps_graph(gctx: &GlobalContext, graph: &UnitGraph) {
+    // For workspaces with large dependency graphs, the act of logging graph can actually take
+    // hundreds of milliseconds, skewing the profiling timings. By default, we do not dump the
+    // entire graph to avoid skewing the timings.
+    let graph_to_log = if gctx.get_env("__CARGO_DUMP_UNIT_DEP_GRAPH").unwrap_or("0") == "1" {
+        Some(graph)
+    } else {
+        None
+    };
+
+    trace!(
+        count = graph.len(),
+        graph = format!("{graph_to_log:#?}"),
+        "ALL UNIT DEPENDENCIES",
+    );
 }
 
 /// Compute all the dependencies for the standard library.
@@ -539,7 +557,7 @@ fn compute_deps_custom_build(
     //
     // Computing the compile target for artifact units is more involved as it has to handle
     // various target configurations specific to artifacts, like `target = "target"` and
-    // `target = "<triple>"`, which makes knowing the root units compile target
+    // `target = "<tuple>"`, which makes knowing the root units compile target
     // `root_unit_compile_target` necessary.
     let root_unit_compile_target = unit_for.root_compile_kind();
     let unit_for = UnitFor::new_host(/*host_features*/ true, root_unit_compile_target);

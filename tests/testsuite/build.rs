@@ -341,7 +341,8 @@ fn chdir_gated() {
         .with_status(101)
         .run();
     // No masquerade should also fail.
-    p.cargo("-C foo -Z unstable-options build")
+    p.cargo("-C foo build")
+        .arg("-Zunstable-options")
         .cwd(p.root().parent().unwrap())
         .with_stderr_data(str![[r#"
 [ERROR] the `-C` flag is unstable, pass `-Z unstable-options` on the nightly channel to enable it
@@ -359,7 +360,8 @@ fn cargo_compile_directory_not_cwd() {
         .file(".cargo/config.toml", &"")
         .build();
 
-    p.cargo("-Zunstable-options -C foo build")
+    p.cargo("-C foo build")
+        .arg("-Zunstable-options")
         .masquerade_as_nightly_cargo(&["chdir"])
         .cwd(p.root().parent().unwrap())
         .run();
@@ -400,7 +402,8 @@ fn cargo_compile_directory_not_cwd_with_invalid_config() {
         .file(".cargo/config.toml", &"!")
         .build();
 
-    p.cargo("-Zunstable-options -C foo build")
+    p.cargo("-C foo build")
+        .arg("-Zunstable-options")
         .masquerade_as_nightly_cargo(&["chdir"])
         .cwd(p.root().parent().unwrap())
         .with_status(101)
@@ -5486,7 +5489,8 @@ required by package `bar v0.1.0 ([ROOT]/foo)`
 
 "#]])
         .run();
-    p.cargo("build -Zavoid-dev-deps")
+    p.cargo("build")
+        .arg("-Zavoid-dev-deps")
         .masquerade_as_nightly_cargo(&["avoid-dev-deps"])
         .run();
 }
@@ -6474,7 +6478,8 @@ fn embed_metadata_no() {
         )
         .build();
 
-    p.cargo("build -Z embed-metadata=no")
+    p.cargo("build")
+        .arg("-Zembed-metadata=no")
         .masquerade_as_nightly_cargo(&["-Z embed-metadata"])
         .arg("-v")
         .with_stderr_contains("[RUNNING] `[..]-Z embed-metadata=no[..]`")
@@ -6524,7 +6529,8 @@ fn embed_metadata_no_dylib_dep() {
         )
         .build();
 
-    p.cargo("build -Z embed-metadata=no")
+    p.cargo("build")
+        .arg("-Zembed-metadata=no")
         .masquerade_as_nightly_cargo(&["-Z embed-metadata"])
         .arg("-v")
         .with_stderr_contains("[RUNNING] `[..]-Z embed-metadata=no[..]`")
@@ -6563,7 +6569,8 @@ fn embed_metadata_no_invalidate() {
         )
         .build();
 
-    p.cargo("build -Z embed-metadata=no")
+    p.cargo("build")
+        .arg("-Zembed-metadata=no")
         .masquerade_as_nightly_cargo(&["-Z embed-metadata"])
         .with_stderr_data(str![[r#"
 [LOCKING] 1 package to highest compatible version
@@ -6573,7 +6580,8 @@ fn embed_metadata_no_invalidate() {
 
 "#]])
         .run();
-    p.cargo("build -Z embed-metadata=yes")
+    p.cargo("build")
+        .arg("-Zembed-metadata=yes")
         .masquerade_as_nightly_cargo(&["-Z embed-metadata"])
         .with_stderr_data(str![[r#"
 [COMPILING] bar v0.5.0 ([ROOT]/foo/bar)
@@ -6640,10 +6648,7 @@ fn should_not_include_build_script_out_dir_path_in_rustc_args() {
         .run();
 }
 
-#[cargo_test(
-    nightly,
-    reason = "Depends on https://github.com/rust-lang/rust/pull/155439/changes/61f3e086acc1c187bb262ab43cac71f44018c397"
-)]
+#[cargo_test]
 fn should_only_include_dylibs_on_lib_search_path() {
     let envvar = dylib_path_envvar();
     let p = project()
@@ -6760,10 +6765,7 @@ qux (cdylib) on search path: true
         .run();
 }
 
-#[cargo_test(
-    nightly,
-    reason = "Depends on https://github.com/rust-lang/rust/pull/155439/changes/61f3e086acc1c187bb262ab43cac71f44018c397"
-)]
+#[cargo_test]
 fn should_not_include_proc_macro_deps_paths_in_rustc_args() {
     let p = project()
         .file(
@@ -6870,7 +6872,87 @@ fn should_not_include_proc_macro_deps_paths_in_rustc_args() {
 [COMPILING] my-proc-macro v0.1.0 ([ROOT]/foo/my-proc-macro)
 [RUNNING] `rustc --crate-name my_proc_macro [..]`
 [COMPILING] foo v0.0.0 ([ROOT]/foo)
-[RUNNING] `rustc --crate-name foo [..] --out-dir [ROOT]/foo/target/debug/build/foo/[HASH]/out -L dependency=[ROOT]/foo/target/debug/build/my-proc-macro/[HASH]/out --extern my_proc_macro=[ROOT]/foo/target/debug/build/my-proc-macro/[HASH]/out/[..] --force-warn=unused_crate_dependencies`
+[RUNNING] `rustc --crate-name foo [..] --out-dir [ROOT]/foo/target/debug/build/foo/[HASH]/out --extern my_proc_macro=[ROOT]/foo/target/debug/build/my-proc-macro/[HASH]/out/[..] --force-warn=unused_crate_dependencies`
+[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [ELAPSED]s
+
+"#]].unordered())
+        .run();
+}
+
+#[cargo_test]
+fn should_not_include_direct_deps_paths_in_rustc_args() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.0.0"
+                edition = "2021"
+                authors = []
+                resolver = "2"
+
+                [dependencies]
+                my-direct-dep = { path = "my-direct-dep" }
+
+                [lints.cargo]
+                default = "allow"
+            "#,
+        )
+        .file(
+            "src/main.rs",
+            "fn main() { let _v = my_direct_dep::value_from_direct(); }",
+        )
+        .file(
+            "my-direct-dep/Cargo.toml",
+            r#"
+                [package]
+                name = "my-direct-dep"
+                version = "0.1.0"
+                edition = "2021"
+                authors = []
+
+                [dependencies]
+                my-indirect-dep = { path = "../my-indirect-dep" }
+
+                [lints.cargo]
+                default = "allow"
+            "#,
+        )
+        .file(
+            "my-direct-dep/src/lib.rs",
+            r#"pub fn value_from_direct() -> i32 { my_indirect_dep::value_from_indirect() }"#,
+        )
+        .file(
+            "my-indirect-dep/Cargo.toml",
+            r#"
+                [package]
+                name = "my-indirect-dep"
+                version = "0.1.0"
+                edition = "2021"
+                authors = []
+
+                [lints.cargo]
+                default = "allow"
+            "#,
+        )
+        .file(
+            "my-indirect-dep/src/lib.rs",
+            r#"pub fn value_from_indirect() -> i32 { 200 }"#,
+        )
+        .build();
+
+    // Graph: foo -> my-direct-dep -> my-indirect-dep
+    // We want to make sure `-L .../my-indirect-dep` is passed but not `-L .../my-direct-dep`
+    p.cargo("-v build")
+        .with_stderr_data(str![[r#"
+[LOCKING] 2 packages to highest compatible versions
+[COMPILING] my-indirect-dep v0.1.0 ([ROOT]/foo/my-indirect-dep)
+[RUNNING] `rustc --crate-name my_indirect_dep [..]`
+[COMPILING] my-direct-dep v0.1.0 ([ROOT]/foo/my-direct-dep)
+[RUNNING] `rustc --crate-name my_direct_dep [..]`
+[COMPILING] foo v0.0.0 ([ROOT]/foo)
+[RUNNING] `rustc --crate-name foo [..] --out-dir [ROOT]/foo/target/debug/build/foo/[HASH]/out -L dependency=[ROOT]/foo/target/debug/build/my-indirect-dep/[HASH]/out --extern my_direct_dep=[ROOT]/foo/target/debug/build/my-direct-dep/[HASH]/out/[..] --force-warn=unused_crate_dependencies`
 [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [ELAPSED]s
 
 "#]].unordered())

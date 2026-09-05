@@ -21,7 +21,7 @@ fn gated_manifest() {
                 edition = "2015"
 
                 [profile.dev]
-                trim-paths = "macro"
+                trim-paths = "object"
            "#,
         )
         .file("src/lib.rs", "")
@@ -47,7 +47,7 @@ fn gated_config_toml() {
             ".cargo/config.toml",
             r#"
                 [profile.dev]
-                trim-paths = "macro"
+                trim-paths = "object"
            "#,
         )
         .file("src/lib.rs", "")
@@ -67,7 +67,7 @@ Caused by:
 }
 
 #[cargo_test]
-fn release_profile_default_to_object() {
+fn release_profile_default() {
     let p = project()
         .file(
             "Cargo.toml",
@@ -79,16 +79,22 @@ fn release_profile_default_to_object() {
            "#,
         )
         .file("src/lib.rs", "")
+        .file(
+            "build.rs",
+            r#"
+                fn main() {
+                    assert!(std::env::var_os("CARGO_TRIM_PATHS_SCOPE").is_none());
+                    assert!(std::env::var_os("CARGO_TRIM_PATHS_REMAP").is_none());
+                }
+            "#,
+        )
         .build();
 
-    p.cargo("build --release --verbose -Ztrim-paths")
+    p.cargo("build --release --verbose")
+        .arg("-Ztrim-paths")
         .masquerade_as_nightly_cargo(&["-Ztrim-paths"])
-        .with_stderr_data(str![[r#"
-[COMPILING] foo v0.0.1 ([ROOT]/foo)
-[RUNNING] `rustc [..]--remap-path-scope=object --remap-path-prefix=[ROOT]/foo=. --remap-path-prefix=[..]/lib/rustlib/src/rust=/rustc/[..]`
-[FINISHED] `release` profile [optimized] target(s) in [ELAPSED]s
-
-"#]])
+        .with_stderr_does_not_contain("[..]--remap-path-scope=[..]")
+        .with_stderr_does_not_contain("[..]--remap-path-prefix=[..]")
         .run();
 }
 
@@ -113,11 +119,12 @@ fn one_option() {
             .file("src/lib.rs", "")
             .build();
 
-        p.cargo("build -v -Ztrim-paths")
+        p.cargo("build -v")
     };
 
-    for option in ["macro", "diagnostics", "object", "all"] {
+    for option in ["object", "all"] {
         build(option)
+            .arg("-Ztrim-paths")
             .masquerade_as_nightly_cargo(&["-Ztrim-paths"])
             .with_stderr_data(&format!(
                 "\
@@ -132,71 +139,10 @@ fn one_option() {
             .run();
     }
     build("none")
+        .arg("-Ztrim-paths")
         .masquerade_as_nightly_cargo(&["-Ztrim-paths"])
         .with_stderr_does_not_contain("[..]--remap-path-scope=[..]")
         .with_stderr_does_not_contain("[..]--remap-path-prefix=[..]")
-        .run();
-}
-
-#[cargo_test]
-fn multiple_options() {
-    let p = project()
-        .file(
-            "Cargo.toml",
-            r#"
-                [package]
-                name = "foo"
-                version = "0.0.1"
-                edition = "2015"
-
-                [profile.dev]
-                trim-paths = ["diagnostics", "macro", "object"]
-           "#,
-        )
-        .file("src/lib.rs", "")
-        .build();
-
-    p.cargo("build --verbose -Ztrim-paths")
-        .masquerade_as_nightly_cargo(&["-Ztrim-paths"])
-        .with_stderr_data(str![[r#"
-[COMPILING] foo v0.0.1 ([ROOT]/foo)
-[RUNNING] `rustc [..]--remap-path-scope=diagnostics,macro,object --remap-path-prefix=[ROOT]/foo=. --remap-path-prefix=[..]/lib/rustlib/src/rust=/rustc/[..]`
-[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [ELAPSED]s
-
-"#]])
-        .run();
-}
-
-#[cargo_test]
-fn profile_merge_works() {
-    let p = project()
-        .file(
-            "Cargo.toml",
-            r#"
-                [package]
-                name = "foo"
-                version = "0.0.1"
-                edition = "2015"
-
-                [profile.dev]
-                trim-paths = ["macro"]
-
-                [profile.custom]
-                inherits = "dev"
-                trim-paths = ["diagnostics"]
-            "#,
-        )
-        .file("src/lib.rs", "")
-        .build();
-
-    p.cargo("build -v -Ztrim-paths --profile custom")
-        .masquerade_as_nightly_cargo(&["-Ztrim-paths"])
-        .with_stderr_data(str![[r#"
-[COMPILING] foo v0.0.1 ([ROOT]/foo)
-[RUNNING] `rustc [..]--remap-path-scope=diagnostics --remap-path-prefix=[ROOT]/foo=. --remap-path-prefix=[..]/lib/rustlib/src/rust=/rustc/[..]`
-[FINISHED] `custom` profile [unoptimized + debuginfo] target(s) in [ELAPSED]s
-
-"#]])
         .run();
 }
 
@@ -225,7 +171,8 @@ fn registry_dependency() {
         .file("src/main.rs", "fn main() { bar::f(); }")
         .build();
 
-    p.cargo("run --verbose -Ztrim-paths")
+    p.cargo("run --verbose")
+        .arg("-Ztrim-paths")
         .masquerade_as_nightly_cargo(&["-Ztrim-paths"])
         .with_stdout_data(str![[r#"
 /cargo/registry/[..]/bar-0.0.1/src/lib.rs
@@ -330,7 +277,8 @@ fn registry_dependency_with_build_script_codegen() {
         )
         .build();
 
-    p.cargo("run --verbose -Ztrim-paths")
+    p.cargo("run --verbose")
+        .arg("-Ztrim-paths")
         .masquerade_as_nightly_cargo(&["-Ztrim-paths"])
         // Macros should be sanitized
         .with_stdout_data(str![[r#"
@@ -390,7 +338,8 @@ fn git_dependency() {
         .file("src/main.rs", "fn main() { bar::f(); }")
         .build();
 
-    p.cargo("run --verbose -Ztrim-paths")
+    p.cargo("run --verbose")
+        .arg("-Ztrim-paths")
         .masquerade_as_nightly_cargo(&["-Ztrim-paths"])
         .with_stdout_data(str![[r#"
 /cargo/git/[..]/src/lib.rs
@@ -472,7 +421,8 @@ fn path_dependency() {
         )
         .build();
 
-    p.cargo("run --verbose -Ztrim-paths")
+    p.cargo("run --verbose")
+        .arg("-Ztrim-paths")
         .masquerade_as_nightly_cargo(&["-Ztrim-paths"])
         .with_stdout_data(str![[r#"
 cocktail-bar/src/lib.rs
@@ -550,7 +500,8 @@ fn path_dependency_outside_workspace() {
         .file("src/main.rs", "fn main() { bar::f(); }")
         .build();
 
-    p.cargo("run --verbose -Ztrim-paths")
+    p.cargo("run --verbose")
+        .arg("-Ztrim-paths")
         .masquerade_as_nightly_cargo(&["-Ztrim-paths"])
         .with_stdout_data(str![[r#"
 /cargo/deps/bar-0.0.1/src/lib.rs
@@ -640,7 +591,8 @@ fn vendored_dependencies() {
         .file("src/main.rs", "fn main() { bar::f(); baz::f(); }")
         .build();
 
-    p.cargo("vendor --respect-source-config -Ztrim-paths")
+    p.cargo("vendor --respect-source-config")
+        .arg("-Ztrim-paths")
         .masquerade_as_nightly_cargo(&["-Ztrim-paths"])
         .run();
     p.change_file(
@@ -661,7 +613,8 @@ fn vendored_dependencies() {
     );
 
     // Vendored deps within the workspace are remapped as local packages
-    p.cargo("run --verbose -Ztrim-paths")
+    p.cargo("run --verbose")
+        .arg("-Ztrim-paths")
         .masquerade_as_nightly_cargo(&["-Ztrim-paths"])
         .with_stderr_data(
             str![[r#"
@@ -752,7 +705,8 @@ fn vendored_dependencies_outside_workspace() {
         .file("src/main.rs", "fn main() { bar::f(); baz::f(); }")
         .build();
 
-    p.cargo("vendor --respect-source-config -Ztrim-paths ../shared-vendor")
+    p.cargo("vendor --respect-source-config ../shared-vendor")
+        .arg("-Ztrim-paths")
         .masquerade_as_nightly_cargo(&["-Ztrim-paths"])
         .run();
     p.change_file(
@@ -774,7 +728,8 @@ fn vendored_dependencies_outside_workspace() {
     );
 
     // Vendored deps outside the workspace are remapped as path dependencies
-    p.cargo("run --verbose -Ztrim-paths")
+    p.cargo("run --verbose")
+        .arg("-Ztrim-paths")
         .masquerade_as_nightly_cargo(&["-Ztrim-paths"])
         .with_stderr_data(
             str![[r#"
@@ -878,7 +833,8 @@ fn local_package_with_build_script_codegen() {
 
     // The build-dir rule is passed last
     // so paths should be remapped to `/cargo/build-dir`
-    p.cargo("run --verbose -Ztrim-paths")
+    p.cargo("run --verbose")
+        .arg("-Ztrim-paths")
         .masquerade_as_nightly_cargo(&["-Ztrim-paths"])
         .with_stdout_data(str![[r#"
 /cargo/build-dir/debug/build/foo/[HASH]/out/bindings.rs
@@ -901,6 +857,7 @@ fn local_package_with_build_script_codegen() {
     assert!(unremap_file.exists());
 }
 
+/// This tests diagnostics are remapped correctly.
 #[cargo_test]
 fn diagnostics_works() {
     Package::new("bar", "0.0.1")
@@ -920,7 +877,9 @@ fn diagnostics_works() {
                 bar = "0.0.1"
 
                 [profile.dev]
-                trim-paths = "diagnostics"
+                # Currently Cargo doesn't support the `diagnostics` scope directly,
+                # so use the `all` scope instead.
+                trim-paths = "all"
            "#,
         )
         .file("src/lib.rs", "")
@@ -929,7 +888,8 @@ fn diagnostics_works() {
     let registry_src = paths::home().join(".cargo/registry/src");
     let registry_src = registry_src.display();
 
-    p.cargo("build -vv -Ztrim-paths")
+    p.cargo("build -vv")
+        .arg("-Ztrim-paths")
         .masquerade_as_nightly_cargo(&["-Ztrim-paths"])
         .with_stderr_line_without(
             &["[..]bar-0.0.1/src/lib.rs:1[..]"],
@@ -937,16 +897,16 @@ fn diagnostics_works() {
         )
         .with_stderr_data(str![[r#"
 ...
-[RUNNING] `[..] rustc [..]--remap-path-scope=diagnostics --remap-path-prefix=[ROOT]/home/.cargo/registry/src/[..]=/cargo/registry/[..] --remap-path-prefix=[..]/lib/rustlib/src/rust=/rustc/[..]`
+[RUNNING] `[..] rustc [..]--remap-path-scope=all --remap-path-prefix=[ROOT]/home/.cargo/registry/src/[..]=/cargo/registry/[..] --remap-path-prefix=[..]/lib/rustlib/src/rust=/rustc/[..]`
 [WARNING] unused variable: `unused`
 ...
-[RUNNING] `[..] rustc [..]--remap-path-scope=diagnostics --remap-path-prefix=[ROOT]/foo=. --remap-path-prefix=[..]/lib/rustlib/src/rust=/rustc/[..]`
+[RUNNING] `[..] rustc [..]--remap-path-scope=all --remap-path-prefix=[ROOT]/foo=. --remap-path-prefix=[..]/lib/rustlib/src/rust=/rustc/[..]`
 ...
 "#]])
         .run();
 
-    // Non `object` scope never emits unremap files.
-    assert_eq!(p.glob("target/**/*.trim-paths.jsonl").count(), 0);
+    // The `all` scope includes `object`, so unremap files are emitted.
+    assert_eq!(p.glob("target/**/*.trim-paths.jsonl").count(), 2);
 }
 
 #[cfg(target_os = "macos")]
@@ -1106,9 +1066,10 @@ fn object_works_helper(split_debuginfo: &str, run: impl Fn(&std::path::Path) -> 
     }
     p.cargo("clean").run();
 
-    p.cargo("build --verbose -Ztrim-paths")
+    p.cargo("build --verbose")
         .arg("--config")
         .arg(r#"profile.dev.trim-paths="object""#)
+        .arg("-Ztrim-paths")
         .masquerade_as_nightly_cargo(&["-Ztrim-paths"])
         .with_stderr_data(&format!(
             "\
@@ -1178,18 +1139,9 @@ fn custom_build_env_var_trim_paths() {
         .build();
 
     let test_cases = [
-        ("[]", "none"),
         ("\"all\"", "all"),
-        ("\"diagnostics\"", "diagnostics"),
-        ("\"macro\"", "macro"),
         ("\"none\"", "none"),
         ("\"object\"", "object"),
-        ("false", "none"),
-        ("true", "all"),
-        (
-            r#"["diagnostics", "macro", "object"]"#,
-            "diagnostics,macro,object",
-        ),
     ];
 
     for (opts, expected) in test_cases {
@@ -1236,7 +1188,8 @@ fn custom_build_env_var_trim_paths() {
             ),
         );
 
-        p.cargo("build -Ztrim-paths")
+        p.cargo("build")
+            .arg("-Ztrim-paths")
             .masquerade_as_nightly_cargo(&["-Ztrim-paths"])
             .run();
     }
@@ -1293,7 +1246,8 @@ fn lldb_works_after_trimmed() {
         )
         .build();
 
-    p.cargo("build --verbose -Ztrim-paths")
+    p.cargo("build --verbose")
+        .arg("-Ztrim-paths")
         .masquerade_as_nightly_cargo(&["-Ztrim-paths"])
         .with_stderr_data(str![[r#"
 [COMPILING] foo v0.0.1 ([ROOT]/foo)
@@ -1357,7 +1311,8 @@ fn gdb_works_after_trimmed() {
         )
         .build();
 
-    p.cargo("build --verbose -Ztrim-paths")
+    p.cargo("build --verbose")
+        .arg("-Ztrim-paths")
         .masquerade_as_nightly_cargo(&["-Ztrim-paths"])
         .with_stderr_data(str![[r#"
 [COMPILING] foo v0.0.0 ([ROOT]/foo)
@@ -1437,7 +1392,8 @@ fn cdb_works_after_trimmed() {
         )
         .build();
 
-    p.cargo("build --verbose -Ztrim-paths")
+    p.cargo("build --verbose")
+        .arg("-Ztrim-paths")
         .masquerade_as_nightly_cargo(&["-Ztrim-paths"])
         .with_stderr_data(str![[r#"
 [COMPILING] foo v0.0.1 ([ROOT]/foo)
@@ -1493,7 +1449,8 @@ fn rustdoc_without_diagnostics_scope() {
         .file("src/lib.rs", "")
         .build();
 
-    p.cargo("doc -vv -Ztrim-paths")
+    p.cargo("doc -vv")
+        .arg("-Ztrim-paths")
         .masquerade_as_nightly_cargo(&["-Ztrim-paths"])
         .with_stderr_data(str![[r#"
 ...
@@ -1529,17 +1486,20 @@ fn rustdoc_diagnostics_works() {
                 bar = "0.0.1"
 
                 [profile.dev]
-                trim-paths = "diagnostics"
+                # Currently Cargo doesn't support the `diagnostics` scope directly,
+                # so use the `all` scope instead.
+                trim-paths = "all"
            "#,
         )
         .file("src/lib.rs", "")
         .build();
 
-    p.cargo("doc -vv -Ztrim-paths")
+    p.cargo("doc -vv")
+        .arg("-Ztrim-paths")
         .masquerade_as_nightly_cargo(&["-Ztrim-paths"])
         .with_stderr_data(str![[r#"
 ...
-[RUNNING] `[..]rustc [..]--remap-path-scope=diagnostics --remap-path-prefix=[ROOT]/home/.cargo/registry/src/[..]=/cargo/registry/[..] --remap-path-prefix=[..]/lib/rustlib/src/rust=/rustc/[..]`
+[RUNNING] `[..]rustc [..]--remap-path-scope=all --remap-path-prefix=[ROOT]/home/.cargo/registry/src/[..]=/cargo/registry/[..] --remap-path-prefix=[..]/lib/rustlib/src/rust=/rustc/[..]`
 ...
 [WARNING] unopened HTML tag `script`
  --> /cargo/registry/[HASH]/bar-0.0.1/src/lib.rs:2:17
@@ -1585,7 +1545,9 @@ fn workspace_remap_with_root_dir() {
         .file("bar/src/lib.rs", "pub fn f() {}")
         .build();
 
-    p.cargo("build --verbose -Ztrim-paths -Zroot-dir=..")
+    p.cargo("build --verbose")
+        .arg("-Ztrim-paths")
+        .arg("-Zroot-dir=..")
         .masquerade_as_nightly_cargo(&["-Ztrim-paths", "-Zroot-dir"])
         .with_stderr_data(str![[r#"
 [LOCKING] 1 package to highest compatible version
@@ -1652,8 +1614,9 @@ fn workspace_prefix_override_from_env() {
         .file("member/src/lib.rs", "")
         .build();
 
-    p.cargo("build --verbose -Ztrim-paths")
+    p.cargo("build --verbose")
         .env("__CARGO_RUSTC_BOOTSTRAP_WS_REMAP", "/rustc-dev/1111111")
+        .arg("-Ztrim-paths")
         .masquerade_as_nightly_cargo(&["-Ztrim-paths"])
         .with_stderr_data(str![[r#"
 [LOCKING] 1 package to highest compatible version
@@ -1715,13 +1678,15 @@ fn workspace_prefix_override_fingerprint() {
         .file("src/main.rs", "fn main() {}")
         .build();
 
-    p.cargo("build -Ztrim-paths")
+    p.cargo("build")
         .env("__CARGO_RUSTC_BOOTSTRAP_WS_REMAP", "/rustc-dev/1111111")
+        .arg("-Ztrim-paths")
         .masquerade_as_nightly_cargo(&["-Ztrim-paths"])
         .run();
 
-    p.cargo("build --verbose -Ztrim-paths")
+    p.cargo("build --verbose")
         .env("__CARGO_RUSTC_BOOTSTRAP_WS_REMAP", "/rustc-dev/2222222")
+        .arg("-Ztrim-paths")
         .masquerade_as_nightly_cargo(&["-Ztrim-paths"])
         .with_stderr_data(str![[r#"
 [DIRTY] foo v0.0.1 ([ROOT]/foo): the profile configuration changed
@@ -1751,7 +1716,8 @@ fn unremap_file_rebuild() {
         .file("src/main.rs", "fn main() {}")
         .build();
 
-    p.cargo("build -Ztrim-paths")
+    p.cargo("build")
+        .arg("-Ztrim-paths")
         .masquerade_as_nightly_cargo(&["-Ztrim-paths"])
         .run();
     assert!(p.bin("foo").is_file());
@@ -1760,7 +1726,8 @@ fn unremap_file_rebuild() {
 
     // Deleting the uplifted copy won't cause rebuild.
     std::fs::remove_file(&unremap_file).unwrap();
-    p.cargo("build --verbose -Ztrim-paths")
+    p.cargo("build --verbose")
+        .arg("-Ztrim-paths")
         .masquerade_as_nightly_cargo(&["-Ztrim-paths"])
         .with_stderr_data(str![[r#"
 [FRESH] foo v0.0.1 ([ROOT]/foo)
@@ -1779,7 +1746,8 @@ fn unremap_file_rebuild() {
         .find(|f| *f != unremap_file)
         .unwrap();
     std::fs::remove_file(&deps_file).unwrap();
-    p.cargo("build --verbose -Ztrim-paths")
+    p.cargo("build --verbose")
+        .arg("-Ztrim-paths")
         .masquerade_as_nightly_cargo(&["-Ztrim-paths"])
         .with_stderr_data(str![[r#"
 [DIRTY] foo v0.0.1 ([ROOT]/foo): couldn't read metadata for file `target/debug/[..]/foo[..].trim-paths.jsonl`
@@ -1812,7 +1780,8 @@ fn unremap_file_without_debuginfo() {
         .file("src/main.rs", "fn main() {}")
         .build();
 
-    p.cargo("build -Ztrim-paths")
+    p.cargo("build")
+        .arg("-Ztrim-paths")
         .masquerade_as_nightly_cargo(&["-Ztrim-paths"])
         .run();
 
@@ -1839,14 +1808,16 @@ fn unremap_file_with_cargo_clean() {
         .file("src/main.rs", "fn main() {}")
         .build();
 
-    p.cargo("build -Ztrim-paths")
+    p.cargo("build")
+        .arg("-Ztrim-paths")
         .masquerade_as_nightly_cargo(&["-Ztrim-paths"])
         .run();
 
     assert!(unremap_file_path(&p.bin("foo")).exists());
     assert_eq!(p.glob("target/**/*.trim-paths.jsonl").count(), 2);
 
-    p.cargo("clean -p foo -Ztrim-paths")
+    p.cargo("clean -p foo")
+        .arg("-Ztrim-paths")
         .masquerade_as_nightly_cargo(&["-Ztrim-paths"])
         .run();
 
@@ -1879,7 +1850,8 @@ fn unremap_file_in_json_messages() {
         .file("src/main.rs", "fn main() {}")
         .build();
 
-    p.cargo("build -Ztrim-paths --message-format=json")
+    p.cargo("build --message-format=json")
+        .arg("-Ztrim-paths")
         .masquerade_as_nightly_cargo(&["-Ztrim-paths"])
         .with_stdout_data(
             str![[r#"
@@ -1928,7 +1900,9 @@ fn unremap_file_with_artifact_dir() {
         .file("src/main.rs", "fn main() {}")
         .build();
 
-    p.cargo("build -Ztrim-paths -Zunstable-options --artifact-dir out")
+    p.cargo("build --artifact-dir out")
+        .arg("-Ztrim-paths")
+        .arg("-Zunstable-options")
         .masquerade_as_nightly_cargo(&["-Ztrim-paths", "unstable-options"])
         .run();
 
@@ -1960,7 +1934,8 @@ fn unremap_file_for_all_bin_types() {
         .file("examples/ex.rs", "fn main() {}")
         .build();
 
-    p.cargo("test --no-run -Ztrim-paths")
+    p.cargo("test --no-run")
+        .arg("-Ztrim-paths")
         .masquerade_as_nightly_cargo(&["-Ztrim-paths"])
         .run();
 
@@ -1995,7 +1970,8 @@ fn unremap_file_with_multiple_crate_types() {
         .file("src/lib.rs", "")
         .build();
 
-    p.cargo("build -Ztrim-paths")
+    p.cargo("build")
+        .arg("-Ztrim-paths")
         .masquerade_as_nightly_cargo(&["-Ztrim-paths"])
         .run();
 
@@ -2242,7 +2218,8 @@ fn unremap_debugger_project() -> cargo_test_support::Project {
         )
         .build();
 
-    p.cargo("build -Ztrim-paths")
+    p.cargo("build")
+        .arg("-Ztrim-paths")
         .masquerade_as_nightly_cargo(&["-Ztrim-paths"])
         .run();
 
