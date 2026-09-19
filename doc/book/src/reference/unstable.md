@@ -125,7 +125,6 @@ Each new feature described below should explain how to use it.
     * [`cargo config`](#cargo-config) --- Adds a new subcommand for viewing config files.
 * Registries
     * [publish-timeout](#publish-timeout) --- Controls the timeout between uploading the crate and being available in the index
-    * [asymmetric-token](#asymmetric-token) --- Adds support for authentication tokens using asymmetric cryptography (`cargo:paseto` provider).
 * Other
     * [gitoxide](#gitoxide) --- Use `gitoxide` instead of `git2` for a set of operations.
     * [script](#script) --- Enable support for single-file `.rs` packages.
@@ -1161,46 +1160,6 @@ It requires the `-Zpublish-timeout` command-line options to be set.
 timeout = 300  # in seconds
 ```
 
-## asymmetric-token
-* Tracking Issue: [10519](https://github.com/rust-lang/cargo/issues/10519)
-* RFC: [#3231](https://github.com/rust-lang/rfcs/pull/3231)
-
-The `-Z asymmetric-token` flag enables the `cargo:paseto` credential provider which allows Cargo to authenticate to registries without sending secrets over the network.
-
-In [`config.toml`](config.md) and `credentials.toml` files there is a field called `private-key`, which is a private key formatted in the secret [subset of `PASERK`](https://github.com/paseto-standard/paserk/blob/master/types/secret.md) and is used to sign asymmetric tokens
-
-A keypair can be generated with `cargo login --generate-keypair` which will:
-- generate a public/private keypair in the currently recommended fashion.
-- save the private key in `credentials.toml`.
-- print the public key in [PASERK public](https://github.com/paseto-standard/paserk/blob/master/types/public.md) format.
-
-It is recommended that the `private-key` be saved in `credentials.toml`. It is also supported in `config.toml`, primarily so that it can be set using the associated environment variable, which is the recommended way to provide it in CI contexts. This setup is what we have for the `token` field for setting a secret token.
-
-There is also an optional field called `private-key-subject` which is a string chosen by the registry.
-This string will be included as part of an asymmetric token and should not be secret.
-It is intended for the rare use cases like "cryptographic proof that the central CA server authorized this action". Cargo requires it to be non-whitespace printable ASCII. Registries that need non-ASCII data should base64 encode it.
-
-Both fields can be set with `cargo login --registry=name --private-key --private-key-subject="subject"` which will prompt you to put in the key value.
-
-A registry can have at most one of `private-key` or `token` set.
-
-All PASETOs will include `iat`, the current time in ISO 8601 format. Cargo will include the following where appropriate:
-- `sub` an optional, non-secret string chosen by the registry that is expected to be claimed with every request. The value will be the `private-key-subject` from the `config.toml` file.
-- `mutation` if present, indicates that this request is a mutating operation (or a read-only operation if not present), must be one of the strings `publish`, `yank`, or `unyank`.
-  - `name` name of the crate related to this request.
-  - `vers` version string of the crate related to this request.
-  - `cksum` the SHA256 hash of the crate contents, as a string of 64 lowercase hexadecimal digits, must be present only when `mutation` is equal to `publish`
-- `challenge` the challenge string received from a 401/403 from this server this session. Registries that issue challenges must track which challenges have been issued/used and never accept a given challenge more than once within the same validity period (avoiding the need to track every challenge ever issued).
-
-The "footer" (which is part of the signature) will be a JSON string in UTF-8 and include:
-- `url` the RFC 3986 compliant URL where cargo got the config.json file,
-  - If this is a registry with an HTTP index, then this is the base URL that all index queries are relative to.
-  - If this is a registry with a GIT index, it is the URL Cargo used to clone the index.
-- `kid` the identifier of the private key used to sign the request, using the [PASERK IDs](https://github.com/paseto-standard/paserk/blob/master/operations/ID.md) standard.
-
-PASETO includes the message that was signed, so the server does not have to reconstruct the exact string from the request in order to check the signature. The server does need to check that the signature is valid for the string in the PASETO and that the contents of that string matches the request.
-If a claim should be expected for the request but is missing in the PASETO then the request must be rejected.
-
 ## `cargo config`
 
 * Original Issue: [#2362](https://github.com/rust-lang/cargo/issues/2362)
@@ -1603,17 +1562,18 @@ This integration is currently unstable and available only in nightly toolchains.
 To enable it,
 set `RUST_GDB_TRIM_PATHS=unstable` or `RUST_LLDB_TRIM_PATHS=unstable` respectively.
 
-The unremap file name ends with `.trim-paths.jsonl`.
+The unremap file name ends with `.trim-paths.json`.
 For example,
 your `my-app` executable would come with an unremap file named
-`my-app.trim-paths.jsonl` beside it.
+`my-app.trim-paths.json` beside it.
 
-The unremap file is in JSONL format:
+The unremap file is in JSON format:
 
-* The first record carries the format version.
-* The second record is file-level metadata,
-  such as the toolchain version and the workspace root.
-* Each following record maps a sanitized path prefix in the artifact
+* `v` carries the format version.
+* `rust_version` and `workspace_root` are file-level metadata,
+  namely the toolchain version and the workspace root.
+* `remaps` is an array of records.
+  Each record maps a sanitized path prefix in the artifact
   (`from`) back to the local path it replaced (`to`),
   ordered by the `from` prefix.
   Note that this follows the debugger substitution direction,
@@ -1622,18 +1582,23 @@ The unremap file is in JSONL format:
 An example of the unremap file:
 
 ```json
-{"v":1}
-{"rust_version":"1.96.0-nightly","workspace_root":"/home/me/app"}
-{"from":".","to":"/home/me/app"}
-{"from":"/cargo/build-dir","to":"/home/me/app/target"}
-{"from":"/cargo/registry/6f17d22d3f0a95d1","to":"/home/me/.cargo/registry/src/index.crates.io-6f17d22d3f0a95d1"}
-{"from":"/rustc/abc123","to":"/home/me/.rustup/toolchains/nightly/lib/rustlib/src/rust"}
+{
+  "v": 1,
+  "rust_version": "1.96.0-nightly",
+  "workspace_root": "/home/me/app",
+  "remaps": [
+    { "from": ".", "to": "/home/me/app" },
+    { "from": "/cargo/build-dir", "to": "/home/me/app/target" },
+    { "from": "/cargo/registry/6f17d22d3f0a95d1", "to": "/home/me/.cargo/registry/src/index.crates.io-6f17d22d3f0a95d1" },
+    { "from": "/rustc/abc123", "to": "/home/me/.rustup/toolchains/nightly/lib/rustlib/src/rust" }
+  ]
+}
 ```
 
 Since it is meant to be a debugging aid,
 it includes absolute paths of your system,
 so there is no artifact privacy guarantee.
-You might want to exclude `*.trim-paths.jsonl` files when distributing artifacts.
+You might want to exclude `*.trim-paths.json` files when distributing artifacts.
 
 ##### Limitations
 
@@ -2384,17 +2349,49 @@ The `pubtime` index field  has been stabilized in Rust 1.94.0.
 ## feature-metadata
 
 * Tracking Issue: [#14157](https://github.com/rust-lang/cargo/issues/14157)
+* RFC: [#3416](https://github.com/rust-lang/rfcs/blob/master/text/3416-feature-metadata.md)
 
-This allows to use a table when defining features, with a required `enables` key:
+This allows defining features with a metadata table.
 
 ```toml
+cargo-features = ["feature-metadata"]
+
+[package]
+# ...
+
 [features]
 # same as `foo = []`
 foo = { enables = [] }
 ```
 
-This is equivalent to the array-of-strings syntax.
-Support for other keys should be added later.
+The required `enables` field is equivalent to the array-of-strings syntax.
+
+For other metadata fields, see the subsections below.
+
+### feature-documentation
+
+* Tracking Issue: [#17445](https://github.com/rust-lang/cargo/issues/17445)
+* RFC: [#3485](https://github.com/rust-lang/rfcs/blob/master/text/3485-feature-documentation.md)
+
+This adds a `doc` field to the feature table,
+which provides documentation for the feature.
+
+```toml
+cargo-features = ["feature-metadata"]
+
+[package]
+# ...
+
+[features.serde]
+enables = []
+doc = "Enables support for serialization and deserialization via serde."
+```
+
+The documentation can be consumed and displayed by tools.
+It can be a multi-line TOML string, contain multiple paragraphs, and use Markdown markup,
+similarly to Rust doc comments.
+Tools may only display the first paragraph in some contexts, which should therefore be
+relatively short and make sense without the rest of the description.
 
 ## lockfile-path
 
@@ -2407,7 +2404,7 @@ The `build.warnings` config field has been stabilized in Rust 1.97.
 ## update-breaking
 
 The `cargo update -Zunstable-options --breaking` flag has been removed in 1.99-nightly.
-See <https://github.com/rust-lang/cargo/pull/17333> fopr the reason for its removal.
+See <https://github.com/rust-lang/cargo/pull/17333> for the reason for its removal.
 
 ## build-dir-new-layout
 
@@ -2424,3 +2421,8 @@ for information about configuring Cargo lints.
 Minimum publish-age configuration for dependency resolution was stabilized in Rust 1.100.
 See the [minimum publish-age configuration](config.md#registryglobal-min-publish-age)
 and [resolver behavior](resolver.md#publish-age) for more information.
+
+## asymmetric-token
+
+The `-Z asymmetric-token` flag and `cargo:paseto` credential provider have been removed in 1.100-nightly.
+See <https://github.com/rust-lang/cargo/pull/17333> for the reason for its removal.
