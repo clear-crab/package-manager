@@ -703,6 +703,11 @@ impl<'de> de::Deserialize<'de> for InheritableDependency {
             D::Error,
         >::new(value.clone()))
         {
+            if w._unused_keys.get("builtin").is_some() {
+                return Err(de::Error::custom(
+                    "`builtin` cannot be combined with `workspace = true`",
+                ));
+            }
             return if w.workspace {
                 Ok(InheritableDependency::Inherit(w))
             } else {
@@ -843,6 +848,14 @@ pub struct TomlDetailedDependency<P: Clone = String> {
     pub branch: Option<String>,
     pub tag: Option<String>,
     pub rev: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_builtin",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    #[cfg_attr(feature = "unstable-schema", schemars(extend("const" = true)))]
+    pub builtin: bool,
+
     pub features: Option<Vec<String>>,
     pub optional: Option<bool>,
     pub default_features: Option<bool>,
@@ -866,6 +879,14 @@ pub struct TomlDetailedDependency<P: Clone = String> {
     pub _unused_keys: BTreeMap<String, toml::Value>,
 }
 
+fn deserialize_builtin<'de, D: de::Deserializer<'de>>(deserializer: D) -> Result<bool, D::Error> {
+    if bool::deserialize(deserializer)? {
+        Ok(true)
+    } else {
+        Err(de::Error::custom("`builtin` cannot be false"))
+    }
+}
+
 impl<P: Clone> TomlDetailedDependency<P> {
     pub fn default_features(&self) -> Option<bool> {
         self.default_features.or(self.default_features2)
@@ -877,6 +898,7 @@ impl<P: Clone> Default for TomlDetailedDependency<P> {
     fn default() -> Self {
         Self {
             version: Default::default(),
+            builtin: Default::default(),
             registry: Default::default(),
             registry_index: Default::default(),
             path: Default::default(),

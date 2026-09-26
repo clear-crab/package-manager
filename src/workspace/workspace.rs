@@ -30,8 +30,8 @@ use crate::workspace::features::Features;
 use crate::workspace::parser::{InheritableFields, read_manifest};
 use crate::workspace::registry::PackageRegistry;
 use crate::workspace::{
-    Dependency, Edition, FeatureValue, PackageId, PackageIdSpec, PackageIdSpecQuery, Patch,
-    PatchLocation,
+    Dependency, Edition, Feature, FeatureValue, PackageId, PackageIdSpec, PackageIdSpecQuery,
+    Patch, PatchLocation,
 };
 use crate::workspace::{EitherManifest, Package, SourceId, VirtualManifest};
 
@@ -338,7 +338,7 @@ impl<'gctx> Workspace<'gctx> {
                 }
             }
         }
-        let config = self.gctx().get::<CargoResolverConfig>("resolver")?;
+        let config = self.gctx().get::<CargoResolverConfig>(["resolver"])?;
         if let Some(incompatible_rust_versions) = config.incompatible_rust_versions {
             self.resolve_honors_rust_version =
                 incompatible_rust_versions == IncompatibleRustVersions::Fallback;
@@ -523,7 +523,7 @@ impl<'gctx> Workspace<'gctx> {
     fn config_patch(&self) -> CargoResult<HashMap<Url, Vec<Patch>>> {
         let config_patch: Option<
             BTreeMap<String, BTreeMap<String, Value<TomlDependency<ConfigRelativePath>>>>,
-        > = self.gctx.get("patch")?;
+        > = self.gctx.get(["patch"])?;
 
         let source = SourceId::for_manifest_path(self.root_manifest())?;
 
@@ -545,6 +545,13 @@ impl<'gctx> Workspace<'gctx> {
                 url,
                 deps.iter()
                     .map(|(name, dependency_cv)| {
+                        if let TomlDependency::Detailed(d) = &dependency_cv.val {
+                            if d.builtin {
+                                self.unstable_features()
+                                    .require(Feature::builtin_dependencies())
+                                    .with_context(|| format!("invalid patch for `{name}`"))?;
+                            }
+                        }
                         crate::workspace::parser::config_patch_to_dependency(
                             &dependency_cv.val,
                             name,

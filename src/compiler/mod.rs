@@ -983,9 +983,7 @@ fn prepare_rustdoc(build_runner: &BuildRunner<'_, '_>, unit: &Unit) -> CargoResu
         rustdoc.arg(arg);
     }
 
-    if let Some(trim_paths) = unit.profile.trim_paths.as_ref() {
-        trim_paths_args_rustdoc(&mut rustdoc, build_runner, unit, trim_paths)?;
-    }
+    trim_paths_args_rustdoc(&mut rustdoc, build_runner, unit, &unit.profile.trim_paths)?;
 
     rustdoc.args(unit.pkg.manifest().lint_rustflags());
 
@@ -1331,21 +1329,6 @@ fn build_base_args(
     let hints = unit.pkg.hints().cloned().unwrap_or_default();
     let test = unit.mode.is_any_test();
 
-    let warn = |msg: &str| {
-        bcx.gctx.shell().warn(format!(
-            "{}@{}: {msg}",
-            unit.pkg.package_id().name(),
-            unit.pkg.package_id().version()
-        ))
-    };
-    let unit_capped_warn = |msg: &str| {
-        if unit.show_warnings(bcx.gctx) {
-            warn(msg)
-        } else {
-            Ok(())
-        }
-    };
-
     cmd.arg("--crate-name").arg(&unit.target.crate_name());
 
     let edition = unit.target.edition();
@@ -1446,9 +1429,7 @@ fn build_base_args(
         }
     }
 
-    if let Some(trim_paths) = trim_paths {
-        trim_paths_args(cmd, build_runner, unit, &trim_paths)?;
-    }
+    trim_paths_args(cmd, build_runner, unit, &trim_paths)?;
 
     match compute_cap_lints(bcx, unit) {
         None | Some(CapLints::Warn) => {
@@ -1525,34 +1506,17 @@ fn build_base_args(
     }
 
     let pkg_hint_mostly_unused = match hints.mostly_unused {
-        None => None,
         Some(toml::Value::Boolean(b)) => Some(b),
-        Some(v) => {
-            unit_capped_warn(&format!(
-                "ignoring unsupported value type ({}) for 'hints.mostly-unused', which expects a boolean",
-                v.type_str()
-            ))?;
-            None
-        }
+        // Unsupported values and ignored hints are reported before the build, see
+        // `crate::diagnostics::rules::PARSE_PASS_RULES`.
+        _ => None,
     };
     if profile_hint_mostly_unused
         .or(pkg_hint_mostly_unused)
         .unwrap_or(false)
+        && bcx.gctx.cli_unstable().profile_hint_mostly_unused
     {
-        if bcx.gctx.cli_unstable().profile_hint_mostly_unused {
-            cmd.arg("-Zhint-mostly-unused");
-        } else {
-            if profile_hint_mostly_unused.is_some() {
-                // Profiles come from the top-level unit, so we don't use `unit_capped_warn` here.
-                warn(
-                    "ignoring 'hint-mostly-unused' profile option, pass `-Zprofile-hint-mostly-unused` to enable it",
-                )?;
-            } else if pkg_hint_mostly_unused.is_some() {
-                unit_capped_warn(
-                    "ignoring 'hints.mostly-unused', pass `-Zprofile-hint-mostly-unused` to enable it",
-                )?;
-            }
-        }
+        cmd.arg("-Zhint-mostly-unused");
     }
 
     let strip = strip.into_inner();

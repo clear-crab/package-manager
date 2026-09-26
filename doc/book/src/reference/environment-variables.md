@@ -97,6 +97,7 @@ In summary, the supported environment variables are:
 * `CARGO_BUILD_TARGET` --- The default target platform, see [`build.target`].
 * `CARGO_BUILD_TARGET_DIR` --- The default output directory, see [`build.target-dir`].
 * `CARGO_BUILD_BUILD_DIR` --- The default build directory, see [`build.build-dir`].
+* `CARGO_BUILD_PROFILE` --- The default profile, see [`build.profile`].
 * `CARGO_BUILD_RUSTFLAGS` --- Extra `rustc` flags, see [`build.rustflags`].
 * `CARGO_BUILD_RUSTDOCFLAGS` --- Extra `rustdoc` flags, see [`build.rustdocflags`].
 * `CARGO_BUILD_INCREMENTAL` --- Incremental compilation, see [`build.incremental`].
@@ -116,6 +117,7 @@ In summary, the supported environment variables are:
 * `CARGO_HTTP_MULTIPLEXING` --- Whether HTTP/2 multiplexing is used, see [`http.multiplexing`].
 * `CARGO_HTTP_USER_AGENT` --- The HTTP user-agent header, see [`http.user-agent`].
 * `CARGO_INSTALL_ROOT` --- The default directory for [`cargo install`], see [`install.root`].
+* `CARGO_INSTALL_PROFILE` --- The default profile, see [`install.profile`].
 * `CARGO_NET_RETRY` --- Number of times to retry network errors, see [`net.retry`].
 * `CARGO_NET_GIT_FETCH_WITH_CLI` --- Enables the use of the `git` executable to fetch, see [`net.git-fetch-with-cli`].
 * `CARGO_NET_OFFLINE` --- Offline mode, see [`net.offline`].
@@ -175,6 +177,7 @@ In summary, the supported environment variables are:
 [`build.target`]: config.md#buildtarget
 [`build.target-dir`]: config.md#buildtarget-dir
 [`build.build-dir`]: config.md#buildbuild-dir
+[`build.profile`]: config.md#buildprofile
 [`build.rustflags`]: config.md#buildrustflags
 [`build.rustdocflags`]: config.md#buildrustdocflags
 [`build.incremental`]: config.md#buildincremental
@@ -197,6 +200,7 @@ In summary, the supported environment variables are:
 [`http.multiplexing`]: config.md#httpmultiplexing
 [`http.user-agent`]: config.md#httpuser-agent
 [`install.root`]: config.md#installroot
+[`install.profile`]: config.md#installprofile
 [`net.retry`]: config.md#netretry
 [`net.git-fetch-with-cli`]: config.md#netgit-fetch-with-cli
 [`net.offline`]: config.md#netoffline
@@ -280,8 +284,8 @@ corresponding environment variable is set to the empty string, `""`.
   file extension, such as `.exe`.
 * `OUT_DIR` --- If the package has a build script, this is set to the folder
   where the build script should place its output. See below for more information.
-  (Only set during compilation.) Cargo does not guarantee that this directory
-  is empty, and it is not cleaned between builds.
+  Cargo does not guarantee that this directory is empty, and it is not cleaned
+  between builds.
 * `CARGO_BIN_EXE_<name>` --- The absolute path to a binary target's executable.
   This is only set when building an [integration test] or benchmark. This may
   be used with the [`env` macro] to find the executable to run for testing
@@ -402,7 +406,9 @@ let out_dir = env::var("OUT_DIR").unwrap();
   and it is unique for the package in question. Cargo does not clean or reset this
   directory between builds, and its contents may persist across rebuilds. Build
   scripts should not assume that `OUT_DIR` is empty, and are responsible for
-  managing or cleaning up any files they create.
+  managing or cleaning up any files they create. This is set during execution
+  of the build script and compilation of the crate, but it is **not** available
+  at runtime.
 * `TARGET` --- the target tuple that is being compiled for. Native code should be
   compiled for this tuple. See the [Target Tuple] description for more information.
 * `HOST` --- the host tuple of the Rust compiler.

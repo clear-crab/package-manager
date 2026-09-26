@@ -14,6 +14,7 @@ use crate::context::RegistryConfig;
 use crate::sources::CRATES_IO_REGISTRY;
 use crate::util::CargoResult;
 use crate::util::GlobalContext;
+use crate::util::VersionReqMatchMode;
 use crate::util::interning::InternedString;
 use crate::util::time_span::parse_time_span;
 use crate::workspace::Dependency;
@@ -87,7 +88,10 @@ impl VersionPreferences {
             || self
                 .prefer_patch_deps
                 .get(&pkg_id.name())
-                .map(|deps| deps.iter().any(|d| d.matches_id(*pkg_id)))
+                .map(|deps| {
+                    deps.iter()
+                        .any(|d| d.matches_id(*pkg_id, VersionReqMatchMode::Default))
+                })
                 .unwrap_or(false)
     }
 
@@ -175,7 +179,7 @@ impl PublishAgePolicy {
     /// * the resolver is configured to allow pubtime-incompatible versions
     /// * no threshold is configured at all
     pub fn new(now: Option<jiff::Timestamp>, gctx: &GlobalContext) -> CargoResult<Option<Self>> {
-        let resolver_config = gctx.get::<Option<CargoResolverConfig>>("resolver")?;
+        let resolver_config = gctx.get::<Option<CargoResolverConfig>>(["resolver"])?;
         if resolver_config
             .and_then(|c| c.incompatible_publish_age)
             .is_some_and(|v| v == IncompatiblePublishAge::Allow)
@@ -204,14 +208,14 @@ impl PublishAgePolicy {
             Ok(MinPublishAge::Age(duration, config))
         };
 
-        let registry = gctx.get::<Option<GlobalRegistryConfig>>("registry")?;
+        let registry = gctx.get::<Option<GlobalRegistryConfig>>(["registry"])?;
         let global = parse(
             "registry.global-min-publish-age",
             registry.and_then(|r| r.global_min_publish_age),
         )?;
         let mut per_registry = HashMap::default();
         if let Some(registries) =
-            gctx.get::<Option<HashMap<String, RegistryConfig>>>("registries")?
+            gctx.get::<Option<HashMap<String, RegistryConfig>>>(["registries"])?
         {
             for (name, config) in registries {
                 let limit = parse(

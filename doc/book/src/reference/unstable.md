@@ -75,7 +75,7 @@ Each new feature described below should explain how to use it.
     * [direct-minimal-versions](#direct-minimal-versions) — Forces the resolver to use the lowest compatible version instead of the highest.
     * [public-dependency](#public-dependency) --- Allows dependencies to be classified as either public or private.
     * [msrv-policy](#msrv-policy) --- MSRV-aware resolver and version selection
-    * [precise-pre-release](#precise-pre-release) --- Allows pre-release versions to be selected with `update --precise`
+    * [prerelease](#prerelease) --- Allows pre-release versions to be selected with `update --precise`
     * [sbom](#sbom) --- Generates SBOM pre-cursor files for compiled artifacts
     * [feature-unification](#feature-unification) --- Enable new feature unification modes in workspaces
     * [lockfile-publish-time](#lockfile-publish-time) --- Limit resolver to packages older than the specified time
@@ -116,6 +116,7 @@ Each new feature described below should explain how to use it.
     * [path bases](#path-bases) --- Named base directories for path dependencies.
     * [feature-metadata](#feature-metadata) --- Table syntax for feature definitions.
     * [`unstable-editions`](#unstable-editions) --- Allows use of editions that are not yet stable.
+    * [builtin-dependencies](#builtin-dependencies) --- Allow specifying dependencies on standard library crates.
 * Information and metadata
     * [unit-graph](#unit-graph) --- Emits JSON for Cargo's internal graph structure.
     * [`cargo rustc --print`](#rustc---print) --- Calls rustc with `--print` to display information from rustc.
@@ -388,12 +389,12 @@ Unimplemented
 
 Unimplemented
 
-## precise-pre-release
+## prerelease
 
 * Tracking Issue: [#13290](https://github.com/rust-lang/cargo/issues/13290)
 * RFC: [#3493](https://github.com/rust-lang/rfcs/pull/3493)
 
-The `precise-pre-release` feature allows pre-release versions to be selected with `update --precise`
+The `-Zprerelease` flag allows pre-release versions to be selected with `update --precise`
 even when a pre-release is not specified by a projects `Cargo.toml`.
 
 Take for example this `Cargo.toml`.
@@ -403,9 +404,12 @@ Take for example this `Cargo.toml`.
 my-dependency = "0.1.1"
 ```
 
-It's possible to update `my-dependency` to a pre-release with `update -Zunstable-options my-dependency --precise 0.1.2-pre.0`.
+It's possible to update `my-dependency` to a pre-release with `update -Zprerelease my-dependency --precise 0.1.2-pre.0`.
 This is because `0.1.2-pre.0` is considered compatible with `0.1.1`.
 It would not be possible to upgrade to `0.2.0-pre.0` from `0.1.1` in the same way.
+Subsequent `cargo` commands must also pass `-Zprerelease` to keep the locked pre-release.
+Without the flag, Cargo considers `0.1.2-pre.0` incompatible with `0.1.1` again
+and may either downgrade `my-dependency` back to `0.1.1` or fail with a resolution error.
 
 ## sbom
 * Tracking Issue: [#13709](https://github.com/rust-lang/cargo/pull/13709)
@@ -1497,7 +1501,7 @@ The valid options are:
 For details about each scope,
 see rustc's [`--remap-path-scope`] documentation.
 
-By default, `trim-paths` is not set and path sanitization is disabled for all profiles.
+By default, `trim-paths` is `"none"` and path sanitization is disabled for all profiles.
 You can enable it by specifying this option in `Cargo.toml`:
 
 ```toml
@@ -1639,7 +1643,7 @@ but it still contains absolute paths.
     > build scripts should accept a comma-separated list of scopes.
 * `CARGO_TRIM_PATHS_REMAP` --- The `<from>=<to>` path remap pairs Cargo passes to the compiler,
     joined by the platform path separator.
-    Only set when `trim-paths` profile is active.
+    Empty when `trim-paths` is `"none"`.
     Build scripts can forward these mappings to C/C++ compilers and other tools,
     for example via `cc`'s `-ffile-prefix-map`,
     to sanitize paths consistently with the rest of the build.
@@ -2058,6 +2062,21 @@ option:
 [unstable]
 hint-msrv = true
 ```
+
+## builtin-dependencies
+* Tracking Issue: [rust-lang/cargo#16960](https://github.com/rust-lang/cargo/issues/16960)
+- RFC: [rust-lang/rfcs#3875](https://rust-lang.github.io/rfcs/3875-build-std-explicit-dependencies.html)
+
+Allows specifying dependencies on standard library crates, like so:
+
+```toml
+[dependencies]
+std = { builtin = true, optional = true }
+core = { builtin = true}
+```
+
+Specifying builtin dependencies explicitly pairs well with `-Zbuild-std` and is
+also useful for `#[no_std]` crates. See the RFC for further details.
 
 # Stabilized and removed features
 

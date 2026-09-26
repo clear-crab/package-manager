@@ -85,7 +85,7 @@ pub fn read_manifest(
         let cargo_features = original_toml.cargo_features.as_ref().unwrap_or(&empty);
         let features = Features::new(cargo_features, gctx, &mut warnings, source_id.is_path())?;
         let workspace_config =
-            to_workspace_config(&original_toml, path, is_embedded, &mut warnings)?;
+            to_workspace_config(&original_toml, path, is_embedded, &mut warnings, &features)?;
         if let WorkspaceConfig::Root(ws_root_config) = &workspace_config {
             let package_root = path.parent().unwrap();
             gctx.ws_roots()
@@ -234,6 +234,7 @@ fn to_workspace_config(
     manifest_file: &Path,
     is_embedded: bool,
     warnings: &mut Vec<String>,
+    features: &Features,
 ) -> CargoResult<WorkspaceConfig> {
     if is_embedded {
         let ws_root_config = to_workspace_root_config(&TomlWorkspace::default(), manifest_file);
@@ -247,6 +248,15 @@ fn to_workspace_config(
             verify_lints(toml_config.lints.as_ref(), warnings)?;
             if let Some(ws_deps) = &toml_config.dependencies {
                 for (name, dep) in ws_deps {
+                    if let TomlDependency::Detailed(d) = dep {
+                        if d.builtin {
+                            features
+                                .require(Feature::builtin_dependencies())
+                                .with_context(|| {
+                                    format!("resolving workspace dependency `{name}`")
+                                })?;
+                        }
+                    }
                     if dep.is_optional() {
                         bail!("{name} is optional, but workspace dependencies cannot be optional",);
                     }
@@ -949,6 +959,11 @@ fn normalize_dependencies<'a>(
                     }
                 }
             }
+            if d.builtin {
+                features
+                    .require(Feature::builtin_dependencies())
+                    .with_context(|| format!("resolving builtin dependency {name_in_toml}"))?;
+            }
             normalize_path_dependency(gctx, d, workspace_root, features)
                 .with_context(|| format!("resolving path dependency {name_in_toml}"))?;
         }
@@ -1642,8 +1657,8 @@ pub fn to_real_manifest(
             Some(DepKind::Development),
         )?;
     }
-    let replace = replace(&normalized_toml, &mut manifest_ctx)?;
-    let patch = patch(&normalized_toml, &mut manifest_ctx)?;
+    let replace = replace(&normalized_toml, &mut manifest_ctx, &features)?;
+    let patch = patch(&normalized_toml, &mut manifest_ctx, &features)?;
 
     {
         let mut names_sources = BTreeMap::new();
@@ -2016,8 +2031,8 @@ fn to_virtual_manifest(
             file: manifest_file,
         };
         (
-            replace(&normalized_toml, &mut manifest_ctx)?,
-            patch(&normalized_toml, &mut manifest_ctx)?,
+            replace(&normalized_toml, &mut manifest_ctx, &features)?,
+            patch(&normalized_toml, &mut manifest_ctx, &features)?,
         )
     };
     if let Some(profiles) = &normalized_toml.profile {
@@ -2131,12 +2146,20 @@ fn gather_dependencies(
 fn replace(
     me: &manifest::TomlManifest,
     manifest_ctx: &mut ManifestContext<'_, '_>,
+    features: &Features,
 ) -> CargoResult<Vec<(PackageIdSpec, Dependency)>> {
     if me.patch.is_some() && me.replace.is_some() {
         bail!("cannot specify both [replace] and [patch]");
     }
     let mut replace = Vec::new();
     for (spec, replacement) in me.replace.iter().flatten() {
+        if let TomlDependency::Detailed(d) = replacement {
+            if d.builtin {
+                features
+                    .require(Feature::builtin_dependencies())
+                    .with_context(|| format!("invalid replacement for `{spec}`"))?;
+            }
+        }
         let mut spec = PackageIdSpec::parse(spec).with_context(|| {
             format!(
                 "replacements must specify a valid semver \
@@ -2179,6 +2202,7 @@ fn replace(
 fn patch(
     me: &TomlManifest,
     manifest_ctx: &mut ManifestContext<'_, '_>,
+    features: &Features,
 ) -> CargoResult<HashMap<Url, Vec<Patch>>> {
     let mut patch = HashMap::default();
     for (toml_url, deps) in me.patch.iter().flatten() {
@@ -2204,6 +2228,14 @@ fn patch(
             url,
             deps.iter()
                 .map(|(name, dep)| {
+                    if let manifest::TomlDependency::Detailed(d) = dep {
+                        if d.builtin {
+                            features
+                                .require(Feature::builtin_dependencies())
+                                .with_context(|| format!("resolving patch for `{name}`"))?;
+                        }
+                    }
+
                     unused_dep_keys(
                         name,
                         &format!("patch.{toml_url}",),
@@ -2255,7 +2287,7 @@ fn dep_to_dependency<P: ResolveToPath + Clone>(
         manifest::TomlDependency::Detailed(details) => details,
     };
 
-    if orig.version.is_none() && orig.path.is_none() && orig.git.is_none() {
+    if orig.version.is_none() && orig.path.is_none() && orig.git.is_none() && !orig.builtin {
         anyhow::bail!(
             "dependency ({name_in_toml}) specified without \
                  providing a local path, Git repository, version, or \
@@ -2321,7 +2353,7 @@ fn dep_to_dependency<P: ResolveToPath + Clone>(
         }
     }
 
-    let new_source_id = to_dependency_source_id(orig, name_in_toml, manifest_ctx)?;
+    let new_source_id = to_dependency_source_id(orig, name_in_toml, manifest_ctx, kind)?;
 
     let (pkg_name, explicit_name_in_toml) = match orig.package {
         Some(ref s) => (&s[..], Some(name_in_toml)),
@@ -2401,7 +2433,31 @@ fn to_dependency_source_id<P: ResolveToPath + Clone>(
     orig: &manifest::TomlDetailedDependency<P>,
     name_in_toml: &str,
     manifest_ctx: &mut ManifestContext<'_, '_>,
+    kind: Option<DepKind>,
 ) -> CargoResult<SourceId> {
+    if orig.builtin {
+        if orig.git.is_some()
+            || orig.path.is_some()
+            || orig.registry.is_some()
+            || orig.registry_index.is_some()
+        {
+            bail!(
+                "dependency ({name_in_toml}) specification is ambiguous. \
+                `builtin = true` cannot be combined with any other dependency source"
+            )
+        }
+        if orig.version.is_some() {
+            bail!(
+                "builtin dependency `{name_in_toml}` cannot be combined with a version requirement\n\
+                 Builtin dependencies are unversioned."
+            )
+        }
+        if kind == Some(DepKind::Build) {
+            bail!("builtin dependency `{name_in_toml}` cannot be used as a build dependency")
+        }
+        return SourceId::for_builtin();
+    }
+
     match (
         orig.git.as_ref(),
         orig.path.as_ref(),
@@ -2486,12 +2542,10 @@ pub(crate) fn lookup_path_base<'a>(
 ) -> CargoResult<PathBuf> {
     features.require(Feature::path_bases())?;
 
-    // HACK: The `base` string is user controlled, but building the path is safe from injection
-    // attacks since the `PathBaseName` type restricts the characters that can be used to exclude `.`
-    let base_key = format!("path-bases.{base}");
-
     // Look up the relevant base in the Config and use that as the root.
-    if let Some(path_bases) = gctx.get::<Option<ConfigRelativePath>>(&base_key)? {
+    if let Some(path_bases) =
+        gctx.get::<Option<ConfigRelativePath>>(["path-bases", base.as_str()])?
+    {
         Ok(path_bases.resolve_path(gctx))
     } else {
         // Otherwise, check the built-in bases.
@@ -3210,25 +3264,22 @@ fn prepare_toml_for_publish(
             return;
         };
 
-        features.values_mut().for_each(|feature_deps| {
-            let feature_array = feature_deps
-                .enables()
-                .iter()
-                .filter(|feature_dep| {
-                    let feature_value = FeatureValue::new((*feature_dep).into());
-                    match feature_value {
-                        FeatureValue::Dep { dep_name }
-                        | FeatureValue::DepFeature { dep_name, .. } => {
-                            let k = &manifest::PackageName::new(dep_name.to_string()).unwrap();
-                            dep_name_set.contains(k)
-                        }
-                        _ => true,
+        for feature in features.values_mut() {
+            let enables = match feature {
+                FeatureDefinition::Array(enables) => enables,
+                FeatureDefinition::Metadata(metadata) => &mut metadata.enables,
+            };
+            enables.retain(|feature_dep| {
+                let feature_value = FeatureValue::new(feature_dep.as_str().into());
+                match feature_value {
+                    FeatureValue::Dep { dep_name } | FeatureValue::DepFeature { dep_name, .. } => {
+                        let k = &manifest::PackageName::new(dep_name.to_string()).unwrap();
+                        dep_name_set.contains(k)
                     }
-                })
-                .cloned()
-                .collect();
-            *feature_deps = FeatureDefinition::Array(feature_array);
-        });
+                    _ => true,
+                }
+            });
+        }
     }
 
     fn map_deps(
