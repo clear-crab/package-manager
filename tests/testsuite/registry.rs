@@ -10,7 +10,7 @@ use crate::prelude::*;
 use crate::utils::cargo_process;
 use cargo::workspace::SourceId;
 use cargo_test_support::assert_deterministic_mtime;
-use cargo_test_support::paths;
+use cargo_test_support::paths::{self, ReadOnly};
 use cargo_test_support::registry::{
     self, Dependency, Package, RegistryBuilder, Response, TestRegistry, registry_path,
 };
@@ -429,6 +429,9 @@ Caused by:
 fn bad_cksum_git() {
     bad_cksum(str![[r#"
 [UPDATING] `dummy-registry` index
+[RUNNING] `git [..] fetch [..]`
+From [ROOTURL]/registry
+ * [new ref]         HEAD       -> origin/HEAD
 [LOCKING] 1 package to highest compatible version
 [DOWNLOADING] crates ...
 [DOWNLOADED] bad-cksum v0.0.1 (registry `dummy-registry`)
@@ -2823,6 +2826,9 @@ Caused by:
 fn bad_and_or_malicious_packages_rejected_git() {
     bad_and_or_malicious_packages_rejected(str![[r#"
 [UPDATING] `dummy-registry` index
+[RUNNING] `git [..] fetch [..]`
+From [ROOTURL]/registry
+ * [new ref]         HEAD       -> origin/HEAD
 [LOCKING] 1 package to highest compatible version
 [DOWNLOADING] crates ...
 [DOWNLOADED] foo v0.2.0 (registry `dummy-registry`)
@@ -3152,29 +3158,8 @@ fn readonly_registry_still_works() {
 
     p.cargo("generate-lockfile").run();
     p.cargo("fetch --locked").run();
-    chmod_readonly(&paths::home(), true);
+    let _readonly = ReadOnly::new(paths::home());
     p.cargo("check").run();
-    // make sure we un-readonly the files afterwards so "cargo clean" can remove them (#6934)
-    chmod_readonly(&paths::home(), false);
-
-    fn chmod_readonly(path: &Path, readonly: bool) {
-        for entry in t!(path.read_dir()) {
-            let entry = t!(entry);
-            let path = entry.path();
-            if t!(entry.file_type()).is_dir() {
-                chmod_readonly(&path, readonly);
-            } else {
-                set_readonly(&path, readonly);
-            }
-        }
-        set_readonly(path, readonly);
-    }
-
-    fn set_readonly(path: &Path, readonly: bool) {
-        let mut perms = t!(path.metadata()).permissions();
-        perms.set_readonly(readonly);
-        t!(fs::set_permissions(path, perms));
-    }
 }
 
 #[cargo_test(ignore_windows = "On Windows setting file attributes is a bit complicated")]
@@ -4735,6 +4720,9 @@ fn builtin_source_replacement() {
         .with_status(101)
         .with_stderr_data(str![[r#"
 [UPDATING] crates.io index
+[RUNNING] `git [..] fetch [..]`
+From [ROOTURL]/registry
+ * [new ref]         HEAD       -> origin/HEAD
 [LOCKING] 1 package to highest compatible version
 [DOWNLOADING] crates ...
 [DOWNLOADED] bad-cksum v0.0.1
@@ -4774,6 +4762,9 @@ fn builtin_source_replacement_no_vendor_error() {
         .with_status(101)
         .with_stderr_data(str![[r#"
 [UPDATING] crates.io index
+[RUNNING] `git [..] fetch [..]`
+From [ROOTURL]/registry
+ * [new ref]         HEAD       -> origin/HEAD
 [ERROR] failed to select a version for the requirement `dep = "^0.2.0"`
 candidate versions found which didn't match: 0.1.0
 location searched: crates.io index

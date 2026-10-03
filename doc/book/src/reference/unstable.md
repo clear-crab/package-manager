@@ -100,6 +100,7 @@ Each new feature described below should explain how to use it.
     * [fine-grain-locking](#fine-grain-locking) --- Use fine grain locking instead of locking the entire build cache
     * [json-target-spec](#json-target-spec) --- Allows the use of `.json` custom target specs.
     * [hint-msrv](#hint-msrv) --- Allows Cargo to set `-Zhint-msrv`
+    * [mem-stats](#mem-stats) --- Reports peak memory usage per build unit in `--timings`.
 * rustdoc
     * [rustdoc-map](#rustdoc-map) --- Provides mappings for documentation to link to external sites like [docs.rs](https://docs.rs/).
     * [scrape-examples](#scrape-examples) --- Shows examples within documentation.
@@ -1966,6 +1967,19 @@ HTML/JSON output.
 cargo +nightly -Zsection-timings build --timings
 ```
 
+## mem-stats
+
+Adds a "Peak memory usage per unit" table to the `cargo build --timings` report,
+showing the peak resident set size of each build unit's process (`rustc`,
+`rustdoc`, and build scripts).
+
+```console
+cargo +nightly -Zmem-stats build --timings
+```
+
+Peak memory is measured on Unix (`wait4`'s `ru_maxrss`) and Windows
+(`GetProcessMemoryInfo`); the table is omitted on other platforms.
+
 ## Build analysis
 
 * Original Issue: [rust-lang/rust-project-goals#332](https://github.com/rust-lang/rust-project-goals/pull/332)
@@ -2384,6 +2398,20 @@ foo = { enables = [] }
 ```
 
 The required `enables` field is equivalent to the array-of-strings syntax.
+
+With `feature-metadata` enabled, `cargo metadata --format-version 1` includes a
+`features_v2` field alongside the existing `features` field. It mirrors every
+feature as an object with an `enables` array and other metadata fields:
+
+```json
+"features_v2": {
+  "foo": { "enables": [] },
+  "serde": {
+    "enables": ["dep:serde"],
+    "doc": "Enables support for serialization via serde."
+  }
+}
+```
 
 For other metadata fields, see the subsections below.
 
