@@ -959,7 +959,7 @@ pub struct TomlProfile {
     // requires all non-tables to be listed first.
     pub package: Option<BTreeMap<ProfilePackageSpec, TomlProfile>>,
     pub build_override: Option<Box<TomlProfile>>,
-    /// Unstable feature `-Ztrim-paths`.
+    /// Controls the scope of path sanitization in build outputs.
     pub trim_paths: Option<TomlTrimPaths>,
     /// Unstable feature `hint-mostly-unused`
     pub hint_mostly_unused: Option<bool>,
@@ -1698,6 +1698,11 @@ pub enum TomlLintLevel {
 #[serde(rename_all = "kebab-case")]
 #[cfg_attr(feature = "unstable-schema", derive(schemars::JsonSchema))]
 pub struct Hints {
+    #[cfg_attr(
+        feature = "unstable-schema",
+        schemars(with = "Option<TomlValueWrapper>")
+    )]
+    pub min_opt_level: Option<toml::Value>,
     #[cfg_attr(
         feature = "unstable-schema",
         schemars(with = "Option<TomlValueWrapper>")

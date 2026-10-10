@@ -567,7 +567,7 @@ features! {
     (stable, edition2024, "1.85", "reference/manifest.html#the-edition-field"),
 
     /// Allow setting trim-paths in a profile to control the sanitisation of file paths in build outputs.
-    (unstable, trim_paths, "", "reference/unstable.html#profile-trim-paths-option"),
+    (stable, trim_paths, "1.101", "reference/profiles.html#trim-paths"),
 
     /// Allow multiple packages to participate in the same API namespace
     (unstable, open_namespaces, "", "reference/unstable.html#open-namespaces"),
@@ -904,6 +904,7 @@ unstable_cli_options!(
     git: Option<GitFeatures> = ("Enable support for shallow git fetch operations"),
     #[serde(deserialize_with = "deserialize_gitoxide_features")]
     gitoxide: Option<GitoxideFeatures> = ("Use gitoxide for the given git interactions, or all of them if no argument is given"),
+    hint_min_opt_level: bool = ("Enable the `hints.min-opt-level` manifest key"),
     hint_msrv: bool = ("Enable passing `package.rust-version` to rustc for lints"),
     host_config: bool = ("Enable the `[host]` section in the .cargo/config.toml file"),
     json_target_spec: bool = ("Enable `.json` target spec files"),
@@ -932,7 +933,6 @@ unstable_cli_options!(
     separate_nightlies: bool,
     skip_rustdoc_fingerprint: bool,
     target_applies_to_host: bool = ("Enable the `target-applies-to-host` key in the .cargo/config.toml file"),
-    trim_paths: bool = ("Enable the `trim-paths` option in profiles"),
     unstable_options: bool = ("Allow the usage of unstable options"),
 );
 
@@ -1030,6 +1030,8 @@ const STABILIZED_BUILD_DIR_NEW_LAYOUT: &str = "build.build-dir-new-layout is now
 
 const STABILIZED_MIN_PUBLISH_AGE: &str =
     "The `min-publish-age` configuration is now always available.";
+
+const STABILIZED_TRIM_PATHS: &str = "The `trim-paths` profile option is now always available.";
 
 fn deserialize_comma_separated_list<'de, D>(
     deserializer: D,
@@ -1410,6 +1412,7 @@ impl CliUnstable {
             "build-dir-new-layout" => stabilized_warn(k, "1.100", STABILIZED_BUILD_DIR_NEW_LAYOUT),
             "cargo-lints" => stabilized_warn(k, "1.100", STABILIZED_CARGO_LINTS),
             "min-publish-age" => stabilized_warn(k, "1.100", STABILIZED_MIN_PUBLISH_AGE),
+            "trim-paths" => stabilized_warn(k, "1.101", STABILIZED_TRIM_PATHS),
 
             // Unstable features
             // Sorted alphabetically:
@@ -1443,6 +1446,7 @@ impl CliUnstable {
                     |v| parse_gitoxide(v.split(',')),
                 )?
             }
+            "hint-min-opt-level" => self.hint_min_opt_level = parse_empty(k, v)?,
             "host-config" => self.host_config = parse_empty(k, v)?,
             "json-target-spec" => self.json_target_spec = parse_empty(k, v)?,
             "hint-msrv" => self.hint_msrv = parse_empty(k, v)?,
@@ -1458,7 +1462,6 @@ impl CliUnstable {
             "public-dependency" => self.public_dependency = parse_empty(k, v)?,
             "profile-hint-mostly-unused" => self.profile_hint_mostly_unused = parse_empty(k, v)?,
             "profile-rustflags" => self.profile_rustflags = parse_empty(k, v)?,
-            "trim-paths" => self.trim_paths = parse_empty(k, v)?,
             "publish-timeout" => self.publish_timeout = parse_empty(k, v)?,
             "root-dir" => self.root_dir = v.map(|v| v.into()),
             "rustc-unicode" => self.rustc_unicode = parse_empty(k, v)?,

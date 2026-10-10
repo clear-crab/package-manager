@@ -1070,6 +1070,16 @@
     "Hints": {
       "type": "object",
       "properties": {
+        "min-opt-level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TomlValue"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "mostly-unused": {
           "anyOf": [
             {
@@ -1459,7 +1469,7 @@
           "default": null
         },
         "trim-paths": {
-          "description": "Unstable feature `-Ztrim-paths`.",
+          "description": "Controls the scope of path sanitization in build outputs.",
           "anyOf": [
             {
               "$ref": "#/$defs/TomlTrimPaths"

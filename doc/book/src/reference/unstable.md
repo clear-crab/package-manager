@@ -110,10 +110,10 @@ Each new feature described below should explain how to use it.
 * `Cargo.toml` extensions
     * [Profile `rustflags` option](#profile-rustflags-option) --- Passed directly to rustc.
     * [Profile `hint-mostly-unused` option](#profile-hint-mostly-unused-option) --- Hint that a dependency is mostly unused, to optimize compilation time.
+    * [Package `min-opt-level` hint](#package-min-opt-level-hint) --- Request a numeric optimization floor for one package.
     * [codegen-backend](#codegen-backend) --- Select the codegen backend used by rustc.
     * [per-package-target](#per-package-target) --- Sets the `--target` to use for each individual package.
     * [artifact dependencies](#artifact-dependencies) --- Allow build artifacts to be included into other build artifacts and build them for different targets.
-    * [Profile `trim-paths` option](#profile-trim-paths-option) --- Control the sanitization of file paths in build outputs.
     * [path bases](#path-bases) --- Named base directories for path dependencies.
     * [feature-metadata](#feature-metadata) --- Table syntax for feature definitions.
     * [`unstable-editions`](#unstable-editions) --- Allows use of editions that are not yet stable.
@@ -928,6 +928,80 @@ This will cause the crate to default to hint-mostly-unused, unless overridden
 via `profile`, which takes precedence, and which can only be specified in the
 top-level crate being built.
 
+## Package `min-opt-level` hint
+* Tracking Issue: [#17334](https://github.com/rust-lang/cargo/issues/17334)
+* RFC: [#3924](https://github.com/rust-lang/rfcs/pull/3924)
+
+This feature adds the `min-opt-level` key to the `[hints]` table. It lets a
+package set the lowest optimization level that Cargo will use to build it:
+
+```toml
+[hints]
+min-opt-level = 2
+```
+
+To enable this feature, pass `-Zhint-min-opt-level`. Without the flag, Cargo
+warns and ignores the hint. Versions of Cargo prior to the introduction of this
+feature will give an "unused manifest key" warning, but will otherwise function
+without erroring. This means using the hint does not change the package's MSRV.
+
+### Documentation updates
+
+#### `min-opt-level`
+
+*as a new subsection of ["The `[hints]` section"](./manifest.html#the-hints-section),
+which would gain one subsection per hint*
+
+The `min-opt-level` hint sets the lowest [`opt-level`](profiles.md#opt-level)
+that Cargo will use to build this package. Some packages are very slow without
+optimization, or take longer to build without it. Such a package can ask for a
+minimum optimization level:
+
+```toml
+# In example-dependency's Cargo.toml
+[hints]
+min-opt-level = 2
+```
+
+The valid values are `0`, `1`, `2`, and `3`. Cargo warns about and ignores any
+other value. The `"s"` and `"z"` levels are not valid, because they cannot be
+compared with the numeric levels, and the top-level package is in a better
+position to choose them.
+
+When the selected [profile](profiles.md) has a lower `opt-level` than the hint,
+Cargo builds the package at the hinted level instead. When the profile has a
+higher `opt-level`, Cargo keeps the higher level. This is true whether the
+profile's `opt-level` is the default or is set by the user. It also applies to
+the `opt-level = 0` default for
+[build dependencies](profiles.md#build-dependencies).
+
+The top-level package can override a hint with a profile
+[override](profiles.md#overrides). Any `opt-level` set in a `package` table, in
+the `"*"` package, or in the `build-override` table takes precedence over the
+hint. Setting `opt-level = "s"` or `"z"` in the profile also takes precedence,
+because a package that optimizes for size usually wants its dependencies to do
+the same.
+
+```toml
+# Does not lower the `opt-level` below a dependency's hint.
+[profile.dev]
+opt-level = 0
+
+# Overrides the hint for the `example-dependency` package.
+[profile.dev.package.example-dependency]
+opt-level = 0
+
+# Overrides the hint for all dependencies.
+[profile.dev.package."*"]
+opt-level = 1
+```
+
+A hint only applies to the package that sets it, not to its dependencies. If
+the slow code is in a dependency, that dependency needs to set its own hint.
+
+Only use this hint when optimizing the package makes a full build faster, or
+when the package is many times slower without optimization.
+
 ## rustdoc-map
 * Tracking Issue: [#8296](https://github.com/rust-lang/cargo/issues/8296)
 
@@ -1443,212 +1517,6 @@ To get the executable's path, see [`current_exe`](https://doc.rust-lang.org/std/
 
 ### Documentation Updates
 
-## Profile `trim-paths` option
-
-* Tracking Issue: [rust-lang/cargo#12137](https://github.com/rust-lang/cargo/issues/12137)
-* Tracking Rustc Issue: [rust-lang/rust#111540](https://github.com/rust-lang/rust/issues/111540)
-
-This adds a new profile setting to control how paths are sanitized in the resulting binary.
-This can be enabled like so:
-
-```toml
-cargo-features = ["trim-paths"]
-
-[package]
-# ...
-
-[profile.release]
-trim-paths = "object"
-```
-
-To set this in a profile in Cargo configuration,
-you need to use either `-Z trim-paths` or `[unstable]` table to enable it.
-For example,
-
-```toml
-# .cargo/config.toml
-[unstable]
-trim-paths = true
-
-[profile.release]
-trim-paths = "object"
-```
-
-### Documentation updates
-
-#### trim-paths
-
-*as a new ["Profiles settings" entry](./profiles.html#profile-settings)*
-
-The `trim-paths` option controls the scope of path sanitization in build outputs
-Paths are sanitized according to these [remapping rules].
-
-The valid options are:
-
-- `"none"` --- disables path sanitization.
-- `"object"` --- sanitizes paths embedded in compiled executables and libraries.
-  Useful for improving artifact reproducibility
-  with less impact on local development.
-- `"all"` --- sanitizes paths in all supported locations.
-  Useful for hermetic or remote builds that need artifacts and diagnostics
-  to be independent of the build environment.
-
-> [!WARNING]
-> The `"all"` option remaps compiler diagnostics,
-> including [compiler JSON messages](./external-tools.md#json-messages).
-> Some remapped paths may not resolve to files on the local filesystem,
-> which can affect editors and other tools that consume the diagnostic output.
-
-For details about each scope,
-see rustc's [`--remap-path-scope`] documentation.
-
-By default, `trim-paths` is `"none"` and path sanitization is disabled for all profiles.
-You can enable it by specifying this option in `Cargo.toml`:
-
-```toml
-[profile.dev]
-trim-paths = "all"
-
-[profile.release]
-trim-paths = "object"
-```
-
-[`--remap-path-scope`]: ../../rustc/remap-source-paths.html#--remap-path-scope
-[remapping rules]: #remapping-rules
-
-##### Remapping rules
-
-The exact remap path prefixes are unspecified and may change across Cargo versions.
-Tools that map paths embedded in artifacts back to local sources
-should consume [unremap files] instead of interpreting these prefixes.
-
-[unremap files]: #unremap-files
-
-If `trim-paths` is not `"none"`,
-then the following paths are sanitized if they appear in a selected scope:
-
-1. Path to the source files of the standard and core library (sysroot) will begin with `/rustc/<rustc commit hash>`,
-   e.g. `/home/username/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/result.rs` ->
-   `/rustc/fe72845f7bb6a77b9e671e6a4f32fe714962cec4/library/core/src/result.rs`
-2. Path to a local package within the workspace will begin with `.`,
-   which replaces the workspace root,
-   e.g. `/home/username/crate/src/lib.rs` -> `./src/lib.rs`.
-   This also covers path dependencies located inside the workspace directory.
-3. Path to a registry dependency will begin with `/cargo/registry/<registry id>`,
-   which replaces the registry's extraction directory,
-   e.g. `/home/username/.cargo/registry/src/index.crates.io-6f17d22d3f0a95d1/foo-0.1.0/src/lib.rs` ->
-   `/cargo/registry/6f17d22d3f0a95d1/foo-0.1.0/src/lib.rs`.
-4. Path to a git dependency will begin with `/cargo/git/<git source id>/<revision>`,
-   which replaces the checkout directory.
-   `<revision>` is a prefix of the resolved commit ID recorded in the lockfile.
-5. Path to a path dependency outside the workspace will be replaced with
-   `/cargo/deps/<package name>-<package version>`.
-6. Path into the build directory, for example `OUT_DIR` generated sources,
-   will begin with `/cargo/build-dir`.
-
-`<registry id>` and `<git source id>` are opaque stable hashes of the dependency's source.
-
-Vendored copies of registry or git dependencies
-(via [source replacement](./source-replacement.md))
-are sanitized by their file location instead,
-like workspace paths when inside the workspace directory,
-otherwise like path dependencies.
-
-##### Unremap files
-
-When the `object` scope is active and debuginfo is enabled,
-Cargo writes an unremap file beside each final artifact.
-The file is aimed at helping debuggers substitute sanitized paths back to local ones,
-e.g., via GDB's `set substitute-path` or LLDB's `target.source-map`.
-
-The Rust toolchain provides `rust-gdb` and `rust-lldb` wrappers,
-which can load unremap files automatically.
-This integration is currently unstable and available only in nightly toolchains.
-To enable it,
-set `RUST_GDB_TRIM_PATHS=unstable` or `RUST_LLDB_TRIM_PATHS=unstable` respectively.
-
-The unremap file name ends with `.trim-paths.json`.
-For example,
-your `my-app` executable would come with an unremap file named
-`my-app.trim-paths.json` beside it.
-
-The unremap file is in JSON format:
-
-* `v` carries the format version.
-* `rust_version` and `workspace_root` are file-level metadata,
-  namely the toolchain version and the workspace root.
-* `remaps` is an array of records.
-  Each record maps a sanitized path prefix in the artifact
-  (`from`) back to the local path it replaced (`to`),
-  ordered by the `from` prefix.
-  Note that this follows the debugger substitution direction,
-  which is the inverse of `--remap-path-prefix`.
-
-An example of the unremap file:
-
-```json
-{
-  "v": 1,
-  "rust_version": "1.96.0-nightly",
-  "workspace_root": "/home/me/app",
-  "remaps": [
-    { "from": ".", "to": "/home/me/app" },
-    { "from": "/cargo/build-dir", "to": "/home/me/app/target" },
-    { "from": "/cargo/registry/6f17d22d3f0a95d1", "to": "/home/me/.cargo/registry/src/index.crates.io-6f17d22d3f0a95d1" },
-    { "from": "/rustc/abc123", "to": "/home/me/.rustup/toolchains/nightly/lib/rustlib/src/rust" }
-  ]
-}
-```
-
-Since it is meant to be a debugging aid,
-it includes absolute paths of your system,
-so there is no artifact privacy guarantee.
-You might want to exclude `*.trim-paths.json` files when distributing artifacts.
-
-##### Limitations
-
-`trim-paths` supports remapping source path prefixes as a best effort.
-Linkers may add paths that rustc cannot remap.
-See [the limitations section][remap-limitation] on rustc's documentation for more.
-
-For example, on macOS,
-linkers generate OSO entries containing absolute paths to object files
-when debuginfo is enabled.
-The following profile settings keep these paths out of the executable
-while preserving debuginfo in a separate dSYM bundle:
-
-```toml
-[profile.release]
-debug = true
-trim-paths = "object"
-split-debuginfo = "packed"
-strip = "debuginfo"
-```
-
-The dSYM bundle can be used for debugging,
-but it still contains absolute paths.
-
-[remap-limitation]: ../../rustc/remap-source-paths.html#caveats-and-limitations
-
-#### Environment variable
-
-*as a new entry of ["Environment variables Cargo sets for build scripts"](./environment-variables.md#environment-variables-cargo-sets-for-crates)*
-
-* `CARGO_TRIM_PATHS_SCOPE` --- The value of `trim-paths` profile option.
-    If the build script introduces absolute paths to built artifacts (such as by invoking a compiler),
-    the user may request them to be sanitized in different types of artifacts.
-    Common paths requiring sanitization include `OUT_DIR`, `CARGO_MANIFEST_DIR` and `CARGO_MANIFEST_PATH`,
-    plus any other introduced by the build script, such as include directories.
-    > [!NOTE]
-    > For forward compatibility,
-    > build scripts should accept a comma-separated list of scopes.
-* `CARGO_TRIM_PATHS_REMAP` --- The `<from>=<to>` path remap pairs Cargo passes to the compiler,
-    joined by the platform path separator.
-    Empty when `trim-paths` is `"none"`.
-    Build scripts can forward these mappings to C/C++ compilers and other tools,
-    for example via `cc`'s `-ffile-prefix-map`,
-    to sanitize paths consistently with the rest of the build.
-
 ## gc
 
 * Tracking Issue: [#12633](https://github.com/rust-lang/cargo/issues/12633)
@@ -2092,6 +1960,10 @@ core = { builtin = true}
 Specifying builtin dependencies explicitly pairs well with `-Zbuild-std` and is
 also useful for `#[no_std]` crates. See the RFC for further details.
 
+The Package ID specification can refer to builtin packages using the form
+`builtin://.#<name>`. For example, `builtin://.#core` identifies the builtin
+core package, distinguishing it from packages named "core" from other sources.
+
 # Stabilized and removed features
 
 ## Compile progress
@@ -2473,3 +2345,9 @@ and [resolver behavior](resolver.md#publish-age) for more information.
 
 The `-Z asymmetric-token` flag and `cargo:paseto` credential provider have been removed in 1.100-nightly.
 See <https://github.com/rust-lang/cargo/pull/17333> for the reason for its removal.
+
+## trim-paths
+
+The `trim-paths` profile option was stabilized in Rust 1.101.
+See the [`trim-paths` profile setting](profiles.md#trim-paths)
+for more information.
